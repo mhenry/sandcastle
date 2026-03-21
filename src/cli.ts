@@ -14,9 +14,10 @@ import {
 } from "./DockerLifecycle.js";
 import { scaffold } from "./InitService.js";
 import { orchestrate } from "./Orchestrator.js";
-import { Sandbox, SandboxError } from "./Sandbox.js";
+import { SandboxError } from "./Sandbox.js";
 import { DockerSandboxFactory, SandboxFactory } from "./SandboxFactory.js";
-import { runHooks, syncIn, syncOut } from "./SyncService.js";
+import { withSandboxLifecycle } from "./SandboxLifecycle.js";
+import { syncIn, syncOut } from "./SyncService.js";
 import { resolveTokens } from "./TokenResolver.js";
 
 // --- Shared options ---
@@ -353,84 +354,59 @@ const interactiveSession = (options: {
     const factory = yield* SandboxFactory;
 
     yield* factory.withSandbox(
-      Effect.gen(function* () {
-        const sandbox = yield* Sandbox;
+      withSandboxLifecycle(
+        { hostRepoDir, sandboxRepoDir, hooks: config?.hooks },
+        (ctx) =>
+          Effect.gen(function* () {
+            // Get container ID for docker exec -it
+            const hostnameResult = yield* ctx.sandbox.exec("hostname");
+            const containerId = hostnameResult.stdout.trim();
 
-        // Run onSandboxCreate hooks
-        yield* runHooks(config?.hooks?.onSandboxCreate);
+            // Launch interactive Claude session with TTY passthrough
+            yield* Console.log("Launching interactive Claude session...");
+            yield* Console.log("");
 
-        // Sync in
-        yield* Console.log("Syncing repo into sandbox...");
-        yield* syncIn(hostRepoDir, sandboxRepoDir);
+            const exitCode = yield* Effect.async<number, SandboxError>(
+              (resume) => {
+                const proc = spawn(
+                  "docker",
+                  [
+                    "exec",
+                    "-it",
+                    "-w",
+                    ctx.sandboxRepoDir,
+                    containerId,
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    "claude-opus-4-6",
+                  ],
+                  { stdio: "inherit" },
+                );
 
-        // Run onSandboxReady hooks
-        yield* runHooks(config?.hooks?.onSandboxReady, { cwd: sandboxRepoDir });
+                proc.on("error", (error) => {
+                  resume(
+                    Effect.fail(
+                      new SandboxError(
+                        "interactive",
+                        `Failed to launch Claude: ${error.message}`,
+                      ),
+                    ),
+                  );
+                });
 
-        // Record base HEAD for sync-out
-        const baseHeadResult = yield* sandbox.exec("git rev-parse HEAD", {
-          cwd: sandboxRepoDir,
-        });
-        if (baseHeadResult.exitCode !== 0) {
-          yield* Effect.fail(
-            new SandboxError(
-              "interactive",
-              `Failed to get sandbox HEAD: ${baseHeadResult.stderr}`,
-            ),
-          );
-        }
-        const baseHead = baseHeadResult.stdout.trim();
-
-        // Get container ID for docker exec -it
-        const hostnameResult = yield* sandbox.exec("hostname");
-        const containerId = hostnameResult.stdout.trim();
-
-        // Launch interactive Claude session with TTY passthrough
-        yield* Console.log("Launching interactive Claude session...");
-        yield* Console.log("");
-
-        const exitCode = yield* Effect.async<number, SandboxError>((resume) => {
-          const proc = spawn(
-            "docker",
-            [
-              "exec",
-              "-it",
-              "-w",
-              sandboxRepoDir,
-              containerId,
-              "claude",
-              "--dangerously-skip-permissions",
-              "--model",
-              "claude-opus-4-6",
-            ],
-            { stdio: "inherit" },
-          );
-
-          proc.on("error", (error) => {
-            resume(
-              Effect.fail(
-                new SandboxError(
-                  "interactive",
-                  `Failed to launch Claude: ${error.message}`,
-                ),
-              ),
+                proc.on("close", (code) => {
+                  resume(Effect.succeed(code ?? 0));
+                });
+              },
             );
-          });
 
-          proc.on("close", (code) => {
-            resume(Effect.succeed(code ?? 0));
-          });
-        });
-
-        yield* Console.log("");
-        yield* Console.log(
-          `Session ended (exit code ${exitCode}). Syncing changes back...`,
-        );
-
-        // Sync out
-        yield* syncOut(hostRepoDir, sandboxRepoDir, baseHead);
-
-        yield* Console.log("Sync complete.");
-      }),
+            yield* Console.log("");
+            yield* Console.log(
+              `Session ended (exit code ${exitCode}). Syncing changes back...`,
+            );
+          }),
+      ),
     );
   });
 

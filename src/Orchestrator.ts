@@ -2,32 +2,7 @@ import { Console, Effect } from "effect";
 import type { SandcastleConfig } from "./Config.js";
 import { Sandbox, SandboxError, type SandboxService } from "./Sandbox.js";
 import { SandboxFactory } from "./SandboxFactory.js";
-import { runHooks, syncIn, syncOut } from "./SyncService.js";
-
-const execOk = (
-  sandbox: SandboxService,
-  command: string,
-  options?: { cwd?: string },
-): Effect.Effect<string, SandboxError> =>
-  Effect.flatMap(sandbox.exec(command, options), (result) =>
-    result.exitCode !== 0
-      ? Effect.fail(
-          new SandboxError(
-            "exec",
-            `Command failed (exit ${result.exitCode}): ${command}\n${result.stderr}`,
-          ),
-        )
-      : Effect.succeed(result.stdout),
-  );
-
-const getSandboxHead = (
-  sandbox: SandboxService,
-  sandboxRepoDir: string,
-): Effect.Effect<string, SandboxError> =>
-  Effect.map(
-    execOk(sandbox, "git rev-parse HEAD", { cwd: sandboxRepoDir }),
-    (s) => s.trim(),
-  );
+import { withSandboxLifecycle } from "./SandboxLifecycle.js";
 
 const fetchIssues = (
   sandbox: SandboxService,
@@ -151,61 +126,39 @@ export const orchestrate = (
       yield* Console.log(`\n=== Iteration ${i}/${iterations} ===\n`);
 
       const iterationResult = yield* factory.withSandbox(
-        Effect.gen(function* () {
-          const sandbox = yield* Sandbox;
+        withSandboxLifecycle(
+          { hostRepoDir, sandboxRepoDir, hooks: config?.hooks },
+          (ctx) =>
+            Effect.gen(function* () {
+              // Fetch context
+              const issues = yield* fetchIssues(
+                ctx.sandbox,
+                ctx.sandboxRepoDir,
+                repoFullName,
+              );
+              const ralphCommits = yield* fetchRalphCommits(
+                ctx.sandbox,
+                ctx.sandboxRepoDir,
+              );
 
-          // Run onSandboxCreate hooks (before sync-in)
-          yield* runHooks(config?.hooks?.onSandboxCreate);
+              // Build full prompt with context
+              const fullPrompt = `ISSUES: ${issues}\n\nPrevious RALPH commits: ${ralphCommits}\n\n${prompt}`;
 
-          // Sync-in for this iteration's fresh sandbox
-          yield* Console.log("Syncing repo into sandbox...");
-          yield* syncIn(hostRepoDir, sandboxRepoDir);
+              // Invoke the agent
+              yield* Console.log("Running agent...");
+              const agentOutput = yield* invokeAgent(
+                ctx.sandbox,
+                ctx.sandboxRepoDir,
+                fullPrompt,
+              );
 
-          // Run onSandboxReady hooks (after sync-in)
-          yield* runHooks(config?.hooks?.onSandboxReady, {
-            cwd: sandboxRepoDir,
-          });
-
-          // Record HEAD before agent runs
-          const baseHead = yield* getSandboxHead(sandbox, sandboxRepoDir);
-
-          // Fetch context
-          const issues = yield* fetchIssues(
-            sandbox,
-            sandboxRepoDir,
-            repoFullName,
-          );
-          const ralphCommits = yield* fetchRalphCommits(
-            sandbox,
-            sandboxRepoDir,
-          );
-
-          // Build full prompt with context
-          const fullPrompt = `ISSUES: ${issues}\n\nPrevious RALPH commits: ${ralphCommits}\n\n${prompt}`;
-
-          // Invoke the agent
-          yield* Console.log("Running agent...");
-          const agentOutput = yield* invokeAgent(
-            sandbox,
-            sandboxRepoDir,
-            fullPrompt,
-          );
-
-          // Check for new commits and sync out
-          const newHead = yield* getSandboxHead(sandbox, sandboxRepoDir);
-          if (newHead !== baseHead) {
-            yield* Console.log("New commits detected. Syncing out...");
-            yield* syncOut(hostRepoDir, sandboxRepoDir, baseHead);
-          } else {
-            yield* Console.log("No new commits in this iteration.");
-          }
-
-          // Check completion signal
-          if (agentOutput.includes(COMPLETION_SIGNAL)) {
-            return { complete: true } as const;
-          }
-          return { complete: false } as const;
-        }),
+              // Check completion signal
+              if (agentOutput.includes(COMPLETION_SIGNAL)) {
+                return { complete: true } as const;
+              }
+              return { complete: false } as const;
+            }),
+        ),
       );
 
       if (iterationResult.complete) {
