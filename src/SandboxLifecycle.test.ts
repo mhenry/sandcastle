@@ -237,6 +237,63 @@ describe("withSandboxLifecycle", () => {
     expect(result.branch).toBe("feature/new");
   });
 
+  it("no spinner for sync-out when work produces no commits", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "file.txt", "original", "initial commit");
+
+    const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const displayLayer = SilentDisplay.layer(ref);
+
+    await Effect.runPromise(
+      withSandboxLifecycle({ hostRepoDir: hostDir, sandboxRepoDir }, () =>
+        Effect.succeed("no-op"),
+      ).pipe(Effect.provide(Layer.merge(layer, displayLayer))),
+    );
+
+    const entries = await Effect.runPromise(Ref.get(ref));
+    const spinnerEntries = entries.filter((e) => e._tag === "spinner");
+    expect(
+      spinnerEntries.some((e) =>
+        "message" in e ? e.message.includes("Syncing commits back") : false,
+      ),
+    ).toBe(false);
+  });
+
+  it("shows spinner for sync-out when work produces commits", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "file.txt", "original", "initial commit");
+
+    const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const displayLayer = SilentDisplay.layer(ref);
+
+    await Effect.runPromise(
+      withSandboxLifecycle({ hostRepoDir: hostDir, sandboxRepoDir }, (ctx) =>
+        Effect.gen(function* () {
+          yield* ctx.sandbox.exec('git config user.email "test@test.com"', {
+            cwd: ctx.sandboxRepoDir,
+          });
+          yield* ctx.sandbox.exec('git config user.name "Test"', {
+            cwd: ctx.sandboxRepoDir,
+          });
+          yield* ctx.sandbox.exec(
+            'sh -c "echo new > feature.txt && git add feature.txt && git commit -m \\"feat\\""',
+            { cwd: ctx.sandboxRepoDir },
+          );
+        }),
+      ).pipe(Effect.provide(Layer.merge(layer, displayLayer))),
+    );
+
+    const entries = await Effect.runPromise(Ref.get(ref));
+    const spinnerEntries = entries.filter((e) => e._tag === "spinner");
+    expect(
+      spinnerEntries.some((e) =>
+        "message" in e ? e.message.includes("Syncing commits back") : false,
+      ),
+    ).toBe(true);
+  });
+
   it("callback failure propagates (syncOut skipped)", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);

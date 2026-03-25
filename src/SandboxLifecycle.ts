@@ -90,16 +90,23 @@ export const withSandboxLifecycle = <A>(
     // Run the caller's work
     const result = yield* work({ sandbox, sandboxRepoDir, baseHead });
 
-    // Sync-out
-    yield* display.spinner(
-      "Syncing commits back to host",
-      syncOut(
-        hostRepoDir,
-        sandboxRepoDir,
-        baseHead,
-        branch ? { branch } : undefined,
-      ),
+    // Sync-out — only show spinner if there are commits to sync
+    const currentHead = (yield* execOk(sandbox, "git rev-parse HEAD", {
+      cwd: sandboxRepoDir,
+    })).stdout.trim();
+
+    const syncOutEffect = syncOut(
+      hostRepoDir,
+      sandboxRepoDir,
+      baseHead,
+      branch ? { branch } : undefined,
     );
+
+    if (currentHead !== baseHead) {
+      yield* display.spinner("Syncing commits back to host", syncOutEffect);
+    } else {
+      yield* syncOutEffect;
+    }
 
     // Collect commits applied during sync-out
     const commits = yield* Effect.promise(async () => {

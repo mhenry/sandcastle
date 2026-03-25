@@ -1312,13 +1312,13 @@ describe("Orchestrator Display integration", () => {
       taskLogEntries.some((e) => e.title.includes("Setting up sandbox")),
     ).toBe(true);
 
-    // Spinner for sync-out
+    // No spinner for sync-out when agent produces no commits
     const spinnerEntries = entries.filter((e) => e._tag === "spinner");
     expect(
       spinnerEntries.some((e) =>
         e.message.includes("Syncing commits back to host"),
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     // Usage summary
     const summaryEntries = entries.filter((e) => e._tag === "summary");
