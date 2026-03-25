@@ -542,6 +542,61 @@ describe("round-trip", () => {
     expect(log).toContain("agent commit");
     expect(log).toContain("branch commit");
   });
+
+  it("merge commit in sandbox — individual commits sync, empty merge patch is skipped", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "file.txt", "original", "initial commit");
+
+    const baseHead = await syncInAndGetBase(hostDir, sandboxRepoDir, layer);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Create a side branch with a commit
+    await execAsync("git checkout -b feature-branch", { cwd: sandboxRepoDir });
+    await commitFile(
+      sandboxRepoDir,
+      "feature.txt",
+      "feature content",
+      "add feature",
+    );
+
+    // Switch back to main and make a different commit
+    await execAsync("git checkout main", { cwd: sandboxRepoDir });
+    await commitFile(
+      sandboxRepoDir,
+      "main.txt",
+      "main content",
+      "add main file",
+    );
+
+    // Merge with --no-ff to force a true merge commit, then add an empty
+    // summary commit — git format-patch produces an empty patch for these
+    await execAsync("git merge feature-branch --no-ff --no-edit", {
+      cwd: sandboxRepoDir,
+    });
+    await execAsync('git commit --allow-empty -m "Merge summary"', {
+      cwd: sandboxRepoDir,
+    });
+
+    // Sync out should succeed despite the empty patch
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead).pipe(Effect.provide(layer)),
+    );
+
+    // Both files should be on the host
+    const featureContent = await readFile(
+      join(hostDir, "feature.txt"),
+      "utf-8",
+    );
+    expect(featureContent).toBe("feature content");
+
+    const mainContent = await readFile(join(hostDir, "main.txt"), "utf-8");
+    expect(mainContent).toBe("main content");
+
+    // Original file still intact
+    const original = await readFile(join(hostDir, "file.txt"), "utf-8");
+    expect(original).toBe("original");
+  });
 });
 
 describe("parallel host commits", () => {

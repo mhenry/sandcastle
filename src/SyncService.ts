@@ -1,6 +1,14 @@
 import { Effect } from "effect";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { type FailedStep, buildRecoveryMessage } from "./RecoveryMessage.js";
@@ -453,10 +461,24 @@ const syncOutDirect = (
           .filter((f) => f.endsWith(".patch") && f !== "changes.patch")
           .sort();
 
+        // Skip empty patches (e.g. from merge commits — git format-patch
+        // produces 0-byte files or header-only patches with no diff)
+        const nonEmptyPatchFiles: string[] = [];
+        for (const file of patchFiles) {
+          const filePath = join(patchDir, file);
+          const { size } = yield* Effect.promise(() => stat(filePath));
+          if (size === 0) continue;
+          const content = yield* Effect.promise(() =>
+            readFile(filePath, "utf-8"),
+          );
+          if (!content.includes("diff ")) continue;
+          nonEmptyPatchFiles.push(file);
+        }
+
         // Abort any leftover git am session
         yield* Effect.ignore(execHost("git am --abort", hostRepoDir));
 
-        for (const file of patchFiles) {
+        for (const file of nonEmptyPatchFiles) {
           yield* execHost(
             `git am --3way "${join(patchDir, file)}"`,
             hostRepoDir,
