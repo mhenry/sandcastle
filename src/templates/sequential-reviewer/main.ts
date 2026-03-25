@@ -32,6 +32,11 @@ const hooks = {
   onSandboxReady: [{ command: "npm install" }],
 };
 
+// Copy node_modules from the host into the worktree before each sandbox
+// starts. Avoids a full npm install from scratch; the hook above handles
+// platform-specific binaries and any packages added since the last copy.
+const copyToSandbox = ["node_modules"];
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -51,6 +56,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const implement = await sandcastle.run({
     hooks,
+    copyToSandbox,
     maxIterations: 100,
     model: "claude-sonnet-4-6",
     promptFile: "./.sandcastle/implement-prompt.md",
@@ -76,6 +82,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
+    copyToSandbox,
     maxIterations: 10,
     model: "claude-sonnet-4-6",
     promptFile: "./.sandcastle/review-prompt.md",

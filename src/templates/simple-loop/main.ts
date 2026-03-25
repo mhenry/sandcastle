@@ -18,6 +18,12 @@ await run({
   // Switch to claude-opus-4-6 for harder problems, or claude-haiku-4-5 for speed.
   model: "claude-sonnet-4-6",
 
+  // Copy node_modules from the host into the worktree before the sandbox
+  // starts. This avoids a full npm install from scratch on every iteration.
+  // The onSandboxReady hook still runs npm install as a safety net to handle
+  // platform-specific binaries and any packages added since the last copy.
+  copyToSandbox: ["node_modules"],
+
   // Lifecycle hooks — commands that run inside the sandbox at specific points.
   hooks: {
     // onSandboxReady runs once after the sandbox is initialised and the repo is
