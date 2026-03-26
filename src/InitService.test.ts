@@ -112,6 +112,18 @@ describe("InitService scaffold", () => {
     expect(dockerfile).toContain(SANDBOX_WORKSPACE_DIR);
   });
 
+  it("claude-code Dockerfile template does not install pnpm or enable corepack", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, claudeCodeProvider);
+
+    const dockerfile = await readFile(
+      join(dir, ".sandcastle", "Dockerfile"),
+      "utf-8",
+    );
+    expect(dockerfile).not.toContain("corepack");
+    expect(dockerfile).not.toContain("pnpm");
+  });
+
   it("skeleton prompt contains section headers and hints", async () => {
     const dir = await makeDir();
     await runScaffold(dir, fakeProvider);
