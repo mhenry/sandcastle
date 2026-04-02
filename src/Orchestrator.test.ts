@@ -9,18 +9,16 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
-import {
-  DEFAULT_MODEL,
-  formatToolCall,
-  orchestrate,
-  parseStreamJsonLine,
-} from "./Orchestrator.js";
+import { orchestrate } from "./Orchestrator.js";
+import { claudeCode, DEFAULT_MODEL } from "./AgentProvider.js";
 import { Sandbox } from "./SandboxFactory.js";
 import type { DockerError, SandboxError } from "./errors.js";
 import { TimeoutError } from "./errors.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 
 const execAsync = promisify(exec);
+
+const testProvider = claudeCode("test-model");
 
 const testDisplayLayer = SilentDisplay.layer(
   Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
@@ -208,6 +206,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -241,6 +240,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -270,6 +270,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -299,6 +300,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 2,
@@ -329,6 +331,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -358,6 +361,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -387,6 +391,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 2,
@@ -439,6 +444,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -474,6 +480,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 2,
@@ -518,6 +525,7 @@ describe("Orchestrator", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 3,
@@ -550,6 +558,7 @@ describe("OrchestrateResult", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -597,6 +606,7 @@ describe("OrchestrateResult", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -630,6 +640,7 @@ describe("OrchestrateResult", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -664,6 +675,7 @@ describe("OrchestrateResult", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -778,13 +790,13 @@ describe("OrchestrateResult", () => {
   });
 });
 
-describe("parseStreamJsonLine", () => {
+describe("parseStreamLine (via claudeCode provider)", () => {
   it("extracts text from assistant message", () => {
     const line = JSON.stringify({
       type: "assistant",
       message: { content: [{ type: "text", text: "Hello world" }] },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "Hello world" },
     ]);
   });
@@ -794,7 +806,7 @@ describe("parseStreamJsonLine", () => {
       type: "result",
       result: "Final answer <promise>COMPLETE</promise>",
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       {
         type: "result",
         result: "Final answer <promise>COMPLETE</promise>",
@@ -804,18 +816,20 @@ describe("parseStreamJsonLine", () => {
   });
 
   it("returns empty array for non-JSON lines", () => {
-    expect(parseStreamJsonLine("not json")).toEqual([]);
-    expect(parseStreamJsonLine("")).toEqual([]);
+    expect(claudeCode("test-model").parseStreamLine("not json")).toEqual([]);
+    expect(claudeCode("test-model").parseStreamLine("")).toEqual([]);
   });
 
   it("returns empty array for malformed JSON starting with {", () => {
-    expect(parseStreamJsonLine("{bad json")).toEqual([]);
-    expect(parseStreamJsonLine('{"type": "assistant", broken')).toEqual([]);
+    expect(claudeCode("test-model").parseStreamLine("{bad json")).toEqual([]);
+    expect(
+      claudeCode("test-model").parseStreamLine('{"type": "assistant", broken'),
+    ).toEqual([]);
   });
 
   it("returns empty array for unrecognized JSON types", () => {
     const line = JSON.stringify({ type: "system", data: "something" });
-    expect(parseStreamJsonLine(line)).toEqual([]);
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([]);
   });
 
   it("handles multiple text content blocks", () => {
@@ -828,7 +842,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "Hello world" },
     ]);
   });
@@ -843,7 +857,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "result" },
     ]);
   });
@@ -857,7 +871,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "tool_call", name: "Bash", args: "npm test" },
     ]);
   });
@@ -872,7 +886,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "Running tests..." },
       { type: "tool_call", name: "Bash", args: "npm test" },
     ]);
@@ -892,7 +906,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "tool_call", name: "Bash", args: "npm test" },
       { type: "tool_call", name: "WebSearch", args: "typescript types" },
     ]);
@@ -911,7 +925,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "tool_call", name: "WebFetch", args: "https://example.com" },
     ]);
   });
@@ -929,7 +943,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       {
         type: "tool_call",
         name: "Agent",
@@ -948,7 +962,7 @@ describe("parseStreamJsonLine", () => {
           ],
         },
       });
-      expect(parseStreamJsonLine(line)).toEqual([]);
+      expect(claudeCode("test-model").parseStreamLine(line)).toEqual([]);
     }
   });
 
@@ -962,7 +976,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([]);
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([]);
   });
 
   it("keeps text events even when all tool_use blocks are filtered out", () => {
@@ -975,7 +989,7 @@ describe("parseStreamJsonLine", () => {
         ],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "Looking at files..." },
     ]);
   });
@@ -987,7 +1001,7 @@ describe("parseStreamJsonLine", () => {
         content: [{ type: "text", text: "Just text, no tools" }],
       },
     });
-    expect(parseStreamJsonLine(line)).toEqual([
+    expect(claudeCode("test-model").parseStreamLine(line)).toEqual([
       { type: "text", text: "Just text, no tools" },
     ]);
   });
@@ -1006,7 +1020,7 @@ describe("parseStreamJsonLine", () => {
         cache_creation_input_tokens: 5000,
       },
     });
-    const parsed = parseStreamJsonLine(line);
+    const parsed = claudeCode("test-model").parseStreamLine(line);
     expect(parsed).toEqual([
       {
         type: "result",
@@ -1029,7 +1043,7 @@ describe("parseStreamJsonLine", () => {
       type: "result",
       result: "Done.",
     });
-    const parsed = parseStreamJsonLine(line);
+    const parsed = claudeCode("test-model").parseStreamLine(line);
     expect(parsed).toEqual([
       {
         type: "result",
@@ -1045,7 +1059,7 @@ describe("parseStreamJsonLine", () => {
       result: "Done.",
       usage: { input_tokens: 100 },
     });
-    const parsed = parseStreamJsonLine(line);
+    const parsed = claudeCode("test-model").parseStreamLine(line);
     expect(parsed).toEqual([
       {
         type: "result",
@@ -1053,64 +1067,6 @@ describe("parseStreamJsonLine", () => {
         usage: null,
       },
     ]);
-  });
-});
-
-describe("formatToolCall", () => {
-  it("formats Bash tool call using command field", () => {
-    expect(formatToolCall("Bash", { command: "npm test" })).toEqual({
-      name: "Bash",
-      formattedArgs: "npm test",
-    });
-  });
-
-  it("formats WebSearch tool call using query field", () => {
-    expect(
-      formatToolCall("WebSearch", { query: "npm trusted publishing OIDC" }),
-    ).toEqual({
-      name: "WebSearch",
-      formattedArgs: "npm trusted publishing OIDC",
-    });
-  });
-
-  it("formats WebFetch tool call using url field", () => {
-    expect(
-      formatToolCall("WebFetch", { url: "https://example.com/docs" }),
-    ).toEqual({ name: "WebFetch", formattedArgs: "https://example.com/docs" });
-  });
-
-  it("formats Agent tool call using description field", () => {
-    expect(
-      formatToolCall("Agent", { description: "Run tests and report results" }),
-    ).toEqual({ name: "Agent", formattedArgs: "Run tests and report results" });
-  });
-
-  it("returns null for Read (not in allowlist)", () => {
-    expect(formatToolCall("Read", { file_path: "/some/path" })).toBeNull();
-  });
-
-  it("returns null for Glob (not in allowlist)", () => {
-    expect(formatToolCall("Glob", { pattern: "**/*.ts" })).toBeNull();
-  });
-
-  it("returns null for Grep (not in allowlist)", () => {
-    expect(formatToolCall("Grep", { pattern: "foo" })).toBeNull();
-  });
-
-  it("returns null for Edit (not in allowlist)", () => {
-    expect(formatToolCall("Edit", { file_path: "/foo.ts" })).toBeNull();
-  });
-
-  it("returns null for Write (not in allowlist)", () => {
-    expect(formatToolCall("Write", { file_path: "/foo.ts" })).toBeNull();
-  });
-
-  it("returns null for unknown tool", () => {
-    expect(formatToolCall("UnknownTool", { x: 1 })).toBeNull();
-  });
-
-  it("returns null when the arg field is missing", () => {
-    expect(formatToolCall("Bash", {})).toBeNull();
   });
 });
 
@@ -1186,6 +1142,7 @@ describe("Orchestrator tool call display integration", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir: mockLayer.sandboxRepoDir,
         iterations: 1,
@@ -1259,6 +1216,7 @@ describe("Orchestrator error handling", () => {
 
     const exit = await Effect.runPromiseExit(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -1319,6 +1277,7 @@ describe("Orchestrator error handling", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -1401,6 +1360,7 @@ describe("Orchestrator error handling", () => {
 
     const exit = await Effect.runPromiseExit(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 3,
@@ -1425,6 +1385,7 @@ describe("Orchestrator error handling", () => {
 
     const exit = await Effect.runPromiseExit(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: "/nonexistent/repo",
         sandboxRepoDir,
         iterations: 1,
@@ -1478,6 +1439,7 @@ describe("Orchestrator error handling", () => {
 
     const exit = await Effect.runPromiseExit(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -1540,6 +1502,7 @@ describe("Orchestrator streaming", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -1570,6 +1533,7 @@ describe("Orchestrator streaming", () => {
 
     const result = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
@@ -1582,7 +1546,7 @@ describe("Orchestrator streaming", () => {
     expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
   });
 
-  it("uses DEFAULT_MODEL when no model is specified", async () => {
+  it("uses the model baked into the provider", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-defmodel-host-"));
 
     await initRepo(hostDir);
@@ -1631,6 +1595,7 @@ describe("Orchestrator streaming", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: claudeCode(DEFAULT_MODEL),
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -1638,10 +1603,10 @@ describe("Orchestrator streaming", () => {
       }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
-    expect(capturedCommand).toContain(`--model ${DEFAULT_MODEL}`);
+    expect(capturedCommand).toContain(`--model '${DEFAULT_MODEL}'`);
   });
 
-  it("uses custom model when specified in options", async () => {
+  it("uses the model from a custom provider", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-custmodel-host-"));
 
     await initRepo(hostDir);
@@ -1690,15 +1655,15 @@ describe("Orchestrator streaming", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: claudeCode("claude-sonnet-4-6"),
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
         prompt: "do some work",
-        model: "claude-sonnet-4-6",
       }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
-    expect(capturedCommand).toContain("--model claude-sonnet-4-6");
+    expect(capturedCommand).toContain("--model 'claude-sonnet-4-6'");
     expect(capturedCommand).not.toContain(DEFAULT_MODEL);
   });
 });
@@ -1754,6 +1719,7 @@ describe("Orchestrator prompt preprocessing", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -1824,6 +1790,7 @@ describe("Orchestrator prompt preprocessing", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir: sr2,
         iterations: 1,
@@ -1909,6 +1876,7 @@ describe("Orchestrator Display integration", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir: mockLayer.sandboxRepoDir,
         iterations: 5,
@@ -1981,6 +1949,7 @@ describe("Orchestrator Display integration", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 2,
@@ -2018,6 +1987,7 @@ describe("Orchestrator Display integration", () => {
     // The default idle timeout is 300s (5 minutes) — far longer than any mock agent delay.
     const exitResult = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -2052,6 +2022,7 @@ describe("Orchestrator Display integration", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -2092,6 +2063,7 @@ describe("Orchestrator Display integration", () => {
 
     await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -2124,6 +2096,7 @@ describe("Orchestrator Display integration", () => {
 
     const exitResult = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
@@ -2209,6 +2182,7 @@ describe("Orchestrator Display integration", () => {
 
     const exitResult = await Effect.runPromise(
       orchestrate({
+        provider: testProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
