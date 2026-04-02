@@ -136,38 +136,58 @@ console.log(result.branch); // target branch name
 
 ### `createSandbox()` — reusable sandbox
 
-For multi-run workflows (e.g. implement then review), use `createSandbox()` to create a sandbox once and run multiple agents inside it, avoiding repeated container startup costs.
+Use `createSandbox()` when you need to run multiple agents (or multiple rounds of the same agent) inside a single sandbox. It creates the worktree and container once, and you call `sandbox.run()` as many times as you need. This avoids repeated container startup costs and keeps all runs on the same branch.
+
+Use `run()` instead when you only need a single one-shot invocation — it handles sandbox lifecycle automatically.
+
+#### Basic single-run usage
 
 ```typescript
 import { createSandbox, claudeCode } from "@ai-hero/sandcastle";
 
-// Create a sandbox on an explicit branch
 await using sandbox = await createSandbox({
   branch: "agent/fix-42",
-  // imageName, hooks, copyToSandbox — same as run()
 });
 
-// Run an implementer
+const result = await sandbox.run({
+  agent: claudeCode("claude-opus-4-6"),
+  prompt: "Fix issue #42 in this repo.",
+});
+
+console.log(result.commits); // [{ sha: "abc123" }]
+```
+
+#### Multi-run implement-then-review
+
+```typescript
+import { createSandbox, claudeCode } from "@ai-hero/sandcastle";
+
+await using sandbox = await createSandbox({
+  branch: "agent/fix-42",
+  hooks: { onSandboxReady: [{ command: "npm install" }] },
+});
+
+// Step 1: implement
 const implResult = await sandbox.run({
   agent: claudeCode("claude-opus-4-6"),
   promptFile: ".sandcastle/implement.md",
   maxIterations: 5,
 });
 
-// Run a reviewer on the same sandbox
+// Step 2: review on the same branch, same container
 const reviewResult = await sandbox.run({
   agent: claudeCode("claude-sonnet-4-6"),
   prompt: "Review the changes and fix any issues.",
 });
-
-// sandbox.close() is called automatically via `await using`.
-// If the worktree has uncommitted changes, it is preserved.
-// If clean, both container and worktree are removed.
 ```
 
-`createSandbox()` requires an explicit branch — no temp-branch or no-worktree modes. Commits stay on the specified branch across all `run()` calls.
+Commits from all `run()` calls accumulate on the same branch. The sandbox container stays alive between runs, so installed dependencies and build artifacts persist.
 
-You can also call `sandbox.close()` manually instead of using `await using`:
+#### Automatic cleanup with `await using`
+
+`await using` calls `sandbox.close()` automatically when the block exits. If the worktree has uncommitted changes, it is preserved on disk; if clean, both container and worktree are removed.
+
+#### Manual `close()` with `CloseResult`
 
 ```typescript
 const sandbox = await createSandbox({ branch: "agent/fix-42" });
@@ -177,6 +197,55 @@ if (closeResult.preservedWorktreePath) {
   console.log(`Worktree preserved at ${closeResult.preservedWorktreePath}`);
 }
 ```
+
+#### `CreateSandboxOptions`
+
+| Option          | Type     | Default                      | Description                                                         |
+| --------------- | -------- | ---------------------------- | ------------------------------------------------------------------- |
+| `branch`        | string   | —                            | **Required.** Explicit branch for the worktree                      |
+| `imageName`     | string   | `sandcastle:<repo-dir-name>` | Docker image name                                                   |
+| `hooks`         | object   | —                            | Lifecycle hooks (`onSandboxReady`) — run once at creation time      |
+| `copyToSandbox` | string[] | —                            | Host-relative file paths to copy into the worktree at creation time |
+
+#### `Sandbox`
+
+| Property / Method       | Type                                               | Description                                 |
+| ----------------------- | -------------------------------------------------- | ------------------------------------------- |
+| `branch`                | string                                             | The branch the worktree is on               |
+| `worktreePath`          | string                                             | Host path to the worktree                   |
+| `run(options)`          | `(SandboxRunOptions) => Promise<SandboxRunResult>` | Invoke an agent inside the existing sandbox |
+| `close()`               | `() => Promise<CloseResult>`                       | Tear down the container and worktree        |
+| `[Symbol.asyncDispose]` | `() => Promise<void>`                              | Auto teardown via `await using`             |
+
+#### `SandboxRunOptions`
+
+| Option               | Type               | Default                       | Description                                                         |
+| -------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------- |
+| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`) |
+| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                |
+| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)              |
+| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                |
+| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                           |
+| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String(s) the agent emits to stop the iteration loop early          |
+| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event         |
+| `name`               | string             | —                             | Display name for the run                                            |
+| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                    |
+
+#### `SandboxRunResult`
+
+| Field              | Type        | Description                                                        |
+| ------------------ | ----------- | ------------------------------------------------------------------ |
+| `iterationsRun`    | number      | Number of iterations executed                                      |
+| `completionSignal` | string?     | The matched completion signal string, or `undefined` if none fired |
+| `stdout`           | string      | Combined agent output from all iterations                          |
+| `commits`          | `{ sha }[]` | Commits created during the run                                     |
+| `logFilePath`      | string?     | Path to the log file (only when logging to a file)                 |
+
+#### `CloseResult`
+
+| Field                   | Type    | Description                                                              |
+| ----------------------- | ------- | ------------------------------------------------------------------------ |
+| `preservedWorktreePath` | string? | Host path to the preserved worktree, set when it had uncommitted changes |
 
 ## How it works
 
