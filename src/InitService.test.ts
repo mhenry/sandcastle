@@ -759,6 +759,22 @@ describe("InitService scaffold", () => {
       expect(mainContent).not.toContain("claudeCode");
     });
 
+    it("comments in scaffolded main.ts reference main.ts, not main.mts", async () => {
+      const dir = await makeDir();
+      await writeFile(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", type: "module" }),
+      );
+      await runScaffold(dir);
+
+      const mainContent = await readFile(
+        join(dir, ".sandcastle", "main.ts"),
+        "utf-8",
+      );
+      expect(mainContent).not.toContain("main.mts");
+      expect(mainContent).toContain("main.ts");
+    });
+
     it("scaffolds main.mts when package.json is invalid JSON", async () => {
       const dir = await makeDir();
       await writeFile(join(dir, "package.json"), "not valid json{{{");

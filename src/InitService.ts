@@ -294,6 +294,12 @@ const rewriteMainTs = (
       .readFileString(mainTsPath)
       .pipe(Effect.mapError((e) => new Error(e.message)));
 
+    // Templates use main.mts as the canonical filename in comments.
+    // When the target is main.ts, rewrite those references.
+    if (mainFilename === "main.ts") {
+      content = content.replace(/main\.mts/g, "main.ts");
+    }
+
     // Replace factory function name in imports (e.g. claudeCode → pi)
     // and all factory calls with the correct model.
     // Templates always use claudeCode as the placeholder factory.
