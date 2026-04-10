@@ -1,5 +1,6 @@
 import { Context, Effect, Exit, Layer } from "effect";
 import { FileSystem } from "@effect/platform";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { PlatformError } from "@effect/platform/Error";
 import {
@@ -266,6 +267,7 @@ const startIsolatedProviderSandbox = (
   provider: IsolatedSandboxProvider,
   hostRepoDir: string,
   env: Record<string, string>,
+  copyPaths?: string[],
 ): Effect.Effect<
   {
     handle: IsolatedSandboxHandle;
@@ -278,6 +280,18 @@ const startIsolatedProviderSandbox = (
     try: async () => {
       const handle = await provider.create({ env });
       await syncIn(hostRepoDir, handle);
+
+      if (copyPaths && copyPaths.length > 0) {
+        for (const relativePath of copyPaths) {
+          const hostPath = join(hostRepoDir, relativePath);
+          if (!existsSync(hostPath)) {
+            continue;
+          }
+          const sandboxPath = join(handle.workspacePath, relativePath);
+          await handle.copyIn(hostPath, sandboxPath);
+        }
+      }
+
       return handle;
     },
     catch: (e) =>
@@ -327,7 +341,7 @@ export const WorktreeDockerSandboxFactory = {
           // Isolated providers: skip worktree, sync via git bundle
           if (sandboxProvider.tag === "isolated") {
             return Effect.acquireUseRelease(
-              startIsolatedProviderSandbox(sandboxProvider, hostRepoDir, env),
+              startIsolatedProviderSandbox(sandboxProvider, hostRepoDir, env, copyPaths),
               // Use
               ({ sandboxLayer }) =>
                 makeEffect({}).pipe(

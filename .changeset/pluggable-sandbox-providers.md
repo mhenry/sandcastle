@@ -15,6 +15,7 @@
 - `createBindMountSandboxProvider` and `createIsolatedSandboxProvider` factories
 - Filesystem-based test isolated provider
 - Git bundle sync-in for isolated providers
+- `copyToSandbox` support for isolated providers via `copyIn` after sync-in
 - Git format-patch/am sync-out for committed changes
 - Git diff/apply sync-out for uncommitted changes
 - Untracked file extraction via `copyOut` back to the host

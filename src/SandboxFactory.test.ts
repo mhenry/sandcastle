@@ -1,8 +1,10 @@
 import { Effect, Exit, Layer, Ref } from "effect";
 import { NodeFileSystem } from "@effect/platform-node";
+import { exec } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { AgentError, TimeoutError, WorktreeError } from "./errors.js";
 import { SilentDisplay, type DisplayEntry } from "./Display.js";
@@ -11,6 +13,7 @@ import {
   type SandboxProvider,
   type BindMountSandboxHandle,
 } from "./SandboxProvider.js";
+import { testIsolated } from "./sandboxes/test-isolated.js";
 
 vi.mock("./WorktreeManager.js", () => ({
   create: vi.fn(),
@@ -21,6 +24,7 @@ vi.mock("./WorktreeManager.js", () => ({
 
 import * as WorktreeManager from "./WorktreeManager.js";
 import {
+  Sandbox,
   SandboxFactory,
   WorktreeSandboxConfig,
   WorktreeDockerSandboxFactory,
@@ -600,5 +604,152 @@ describe("WorktreeDockerSandboxFactory", () => {
 
     expect(result.preservedWorktreePath).toBeUndefined();
     expect(result.value).toBe("done");
+  });
+});
+
+const execAsync = promisify(exec);
+
+const initRepo = async (dir: string) => {
+  await execAsync("git init -b main", { cwd: dir });
+  await execAsync('git config user.email "test@test.com"', { cwd: dir });
+  await execAsync('git config user.name "Test"', { cwd: dir });
+};
+
+const commitFile = async (
+  dir: string,
+  name: string,
+  content: string,
+  message: string,
+) => {
+  await writeFile(join(dir, name), content);
+  await execAsync(`git add "${name}"`, { cwd: dir });
+  await execAsync(`git commit -m "${message}"`, { cwd: dir });
+};
+
+describe("WorktreeDockerSandboxFactory — isolated providers", () => {
+  const tempDirs: string[] = [];
+
+  const makeIsolatedLayer = (
+    hostRepoDir: string,
+    copyToSandbox?: string[],
+  ) =>
+    Layer.provide(
+      WorktreeDockerSandboxFactory.layer,
+      Layer.mergeAll(
+        Layer.succeed(WorktreeSandboxConfig, {
+          env: {},
+          hostRepoDir,
+          copyToSandbox,
+          sandboxProvider: testIsolated(),
+        }),
+        NodeFileSystem.layer,
+        SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
+      ),
+    );
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.map((d) => rm(d, { recursive: true, force: true })),
+    );
+    tempDirs.length = 0;
+  });
+
+  it("copies copyToSandbox files into the isolated sandbox via copyIn", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
+    tempDirs.push(hostDir);
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial");
+
+    // Create a file to copy (not tracked by git)
+    await writeFile(join(hostDir, "extra.txt"), "extra content");
+
+    let fileContent = "";
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() =>
+          Effect.gen(function* () {
+            const sandbox = yield* Sandbox;
+            const result = yield* sandbox.exec("cat extra.txt");
+            fileContent = result.stdout.trim();
+          }),
+        );
+      }).pipe(Effect.provide(makeIsolatedLayer(hostDir, ["extra.txt"]))),
+    );
+
+    expect(fileContent).toBe("extra content");
+  });
+
+  it("copies nested copyToSandbox paths, creating parent directories", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
+    tempDirs.push(hostDir);
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial");
+
+    // Create a nested file to copy
+    await mkdir(join(hostDir, "subdir"), { recursive: true });
+    await writeFile(join(hostDir, "subdir", "config.json"), '{"key":"value"}');
+
+    let fileContent = "";
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() =>
+          Effect.gen(function* () {
+            const sandbox = yield* Sandbox;
+            const result = yield* sandbox.exec("cat subdir/config.json");
+            fileContent = result.stdout.trim();
+          }),
+        );
+      }).pipe(
+        Effect.provide(
+          makeIsolatedLayer(hostDir, ["subdir/config.json"]),
+        ),
+      ),
+    );
+
+    expect(fileContent).toBe('{"key":"value"}');
+  });
+
+  it("works without copyToSandbox (no regression)", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
+    tempDirs.push(hostDir);
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello world", "initial");
+
+    let fileContent = "";
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() =>
+          Effect.gen(function* () {
+            const sandbox = yield* Sandbox;
+            const result = yield* sandbox.exec("cat hello.txt");
+            fileContent = result.stdout.trim();
+          }),
+        );
+      }).pipe(Effect.provide(makeIsolatedLayer(hostDir))),
+    );
+
+    expect(fileContent).toBe("hello world");
+  });
+
+  it("skips missing copyToSandbox paths without error", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
+    tempDirs.push(hostDir);
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial");
+
+    // Request a file that doesn't exist — should not fail
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() => Effect.void);
+      }).pipe(
+        Effect.provide(
+          makeIsolatedLayer(hostDir, ["nonexistent.txt"]),
+        ),
+      ),
+    );
   });
 });
