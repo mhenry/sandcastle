@@ -2,6 +2,16 @@ Wherever possible, use Effect primitives like `FileSystem` over promises. This i
 
 ---
 
+Before writing a changeset, explore other potentially related changesets so you don't duplicate effort.
+
+You may write more than one changeset per commit, if the commit touches multiple user-facing behaviors.
+
+---
+
+When writing sandbox providers, don't use any shared abstractions between them. Each provider, for instance Vercel and Daytona, is a different concern and shouldn't share code.
+
+---
+
 ## Testing
 
 ### Core Principle
