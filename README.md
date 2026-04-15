@@ -307,6 +307,42 @@ if (closeResult.preservedWorkspacePath) {
 | ------------------------ | ------- | ------------------------------------------------------------------------- |
 | `preservedWorkspacePath` | string? | Host path to the preserved workspace, set when it had uncommitted changes |
 
+### `createWorkspace()` — independent workspace lifecycle
+
+Use `createWorkspace()` when you need a workspace (git worktree) as an independent, first-class concept — separate from any sandbox. This is useful when you want to run an interactive session first and then hand the same workspace to a sandboxed AFK agent.
+
+Only `branch` and `merge-to-head` strategies are accepted; `head` is a compile-time type error since it means no worktree.
+
+```typescript
+import { createWorkspace } from "@ai-hero/sandcastle";
+
+await using ws = await createWorkspace({
+  branchStrategy: { type: "branch", branch: "agent/fix-42" },
+  copyToWorkspace: ["node_modules"],
+});
+
+console.log(ws.workspacePath); // host path to the worktree
+console.log(ws.branch); // "agent/fix-42"
+```
+
+`ws.close()` checks for uncommitted changes: if the worktree is dirty, it's preserved on disk; if clean, it's removed. `await using` calls `close()` automatically.
+
+#### `CreateWorkspaceOptions`
+
+| Option            | Type                    | Default | Description                                                               |
+| ----------------- | ----------------------- | ------- | ------------------------------------------------------------------------- |
+| `branchStrategy`  | WorkspaceBranchStrategy | —       | **Required.** `{ type: "branch", branch }` or `{ type: "merge-to-head" }` |
+| `copyToWorkspace` | string[]                | —       | Host-relative file paths to copy into the worktree at creation time       |
+
+#### `Workspace`
+
+| Property / Method       | Type                         | Description                                |
+| ----------------------- | ---------------------------- | ------------------------------------------ |
+| `branch`                | string                       | The branch the workspace is on             |
+| `workspacePath`         | string                       | Host path to the workspace                 |
+| `close()`               | `() => Promise<CloseResult>` | Clean up the worktree (preserves if dirty) |
+| `[Symbol.asyncDispose]` | `() => Promise<void>`        | Auto cleanup via `await using`             |
+
 ## How it works
 
 Sandcastle uses a **branch strategy** configured on the sandbox provider to control how the agent's changes relate to branches. There are three strategies:

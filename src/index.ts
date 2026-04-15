@@ -12,6 +12,12 @@ export type {
   SandboxInteractiveResult,
   CloseResult,
 } from "./createSandbox.js";
+export { createWorkspace } from "./createWorkspace.js";
+export type {
+  CreateWorkspaceOptions,
+  Workspace,
+  WorkspaceBranchStrategy,
+} from "./createWorkspace.js";
 export type { PromptArgs } from "./PromptArgumentSubstitution.js";
 export type { MountConfig } from "./MountConfig.js";
 export { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
