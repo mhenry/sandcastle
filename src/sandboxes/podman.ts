@@ -61,8 +61,8 @@ export interface PodmanOptions {
  *
  * The returned provider creates Podman containers with bind-mounts
  * for the worktree and git directories. Calls the `podman` binary
- * on PATH directly — no Podman Machine detection or special
- * macOS/Windows handling.
+ * on PATH directly. On macOS/Windows, verifies that a Podman Machine
+ * is running before container creation.
  */
 export const podman = (options?: PodmanOptions): SandboxProvider => {
   const configuredImageName = options?.imageName;
@@ -338,6 +338,11 @@ const checkImageExists = (imageName: string): Promise<void> =>
     });
   });
 
+const podmanMachineError = () =>
+  new Error(
+    "Podman Machine is not running. Run 'podman machine init && podman machine start' first.",
+  );
+
 const checkPodmanMachine = (): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     execFile(
@@ -345,33 +350,20 @@ const checkPodmanMachine = (): Promise<void> =>
       ["machine", "list", "--format", "json"],
       (error, stdout) => {
         if (error) {
-          reject(
-            new Error(
-              "Podman Machine is not running. Run 'podman machine init && podman machine start' first.",
-            ),
-          );
+          reject(podmanMachineError());
           return;
         }
         try {
           const machines = JSON.parse(stdout.toString()) as Array<{
             Running?: boolean;
           }>;
-          const hasRunning = machines.some((m) => m.Running);
-          if (!hasRunning) {
-            reject(
-              new Error(
-                "Podman Machine is not running. Run 'podman machine init && podman machine start' first.",
-              ),
-            );
-          } else {
+          if (machines.some((m) => m.Running)) {
             resolve();
+          } else {
+            reject(podmanMachineError());
           }
         } catch {
-          reject(
-            new Error(
-              "Podman Machine is not running. Run 'podman machine init && podman machine start' first.",
-            ),
-          );
+          reject(podmanMachineError());
         }
       },
     );
