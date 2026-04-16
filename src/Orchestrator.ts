@@ -1,7 +1,7 @@
 import { Deferred, Effect } from "effect";
 import { Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
-import { AgentError, TimeoutError } from "./errors.js";
+import { AgentError, AgentIdleTimeoutError } from "./errors.js";
 import type { SandboxError } from "./errors.js";
 import type { SandboxService } from "./SandboxFactory.js";
 import { SandboxFactory } from "./SandboxFactory.js";
@@ -28,9 +28,8 @@ const invokeAgent = (
     let resultText = "";
 
     // Deferred that will be failed when the idle timer fires
-    const timeoutSignal = yield* Deferred.make<never, TimeoutError>();
+    const timeoutSignal = yield* Deferred.make<never, AgentIdleTimeoutError>();
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    const idleTimeoutSeconds = idleTimeoutMs / 1000;
 
     // Periodic idle warning state
     let warningHandle: ReturnType<typeof setInterval> | null = null;
@@ -51,9 +50,9 @@ const invokeAgent = (
         Effect.runPromise(
           Deferred.fail(
             timeoutSignal,
-            new TimeoutError({
-              message: `Agent idle for ${idleTimeoutSeconds} seconds — no output received. Consider increasing the idle timeout with --idle-timeout.`,
-              idleTimeoutSeconds,
+            new AgentIdleTimeoutError({
+              message: `Agent idle for ${idleTimeoutMs / 1000} seconds — no output received. Consider increasing the idle timeout with --idle-timeout.`,
+              timeoutMs: idleTimeoutMs,
             }),
           ),
         ).catch(() => {});
@@ -125,7 +124,7 @@ export interface OrchestrateOptions {
   readonly branch?: string;
   readonly provider: AgentProvider;
   readonly completionSignal?: string | string[];
-  /** Idle timeout in seconds. If the agent produces no output for this long, it fails with TimeoutError. Default: 600 (10 minutes) */
+  /** Idle timeout in seconds. If the agent produces no output for this long, it fails with AgentIdleTimeoutError. Default: 600 (10 minutes) */
   readonly idleTimeoutSeconds?: number;
   /** Optional name for the run, prepended to status messages as [name] */
   readonly name?: string;

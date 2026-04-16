@@ -2,12 +2,26 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { Effect } from "effect";
 import { Display } from "./Display.js";
-import { ExecError, SyncError, type SandboxError } from "./errors.js";
+import {
+  CommitCollectionTimeoutError,
+  ExecError,
+  GitSetupTimeoutError,
+  HookTimeoutError,
+  MergeToHostTimeoutError,
+  SyncError,
+  withTimeout,
+  type SandboxError,
+} from "./errors.js";
 import {
   Sandbox,
   type ExecResult,
   type SandboxService,
 } from "./SandboxFactory.js";
+
+const GIT_SETUP_TIMEOUT_MS = 10_000;
+const HOOK_TIMEOUT_MS = 60_000;
+const COMMIT_COLLECTION_TIMEOUT_MS = 30_000;
+const MERGE_TO_HOST_TIMEOUT_MS = 30_000;
 
 const execOk = (
   sandbox: SandboxService,
@@ -106,20 +120,46 @@ export const withSandboxLifecycle = <A>(
         yield* execOk(
           sandbox,
           `git config --global --add safe.directory "${sandboxRepoDir}"`,
+        ).pipe(
+          withTimeout(
+            GIT_SETUP_TIMEOUT_MS,
+            () =>
+              new GitSetupTimeoutError({
+                message: `Git safe.directory config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
+                timeoutMs: GIT_SETUP_TIMEOUT_MS,
+                command: `git config --global --add safe.directory "${sandboxRepoDir}"`,
+              }),
+          ),
         );
 
         // Propagate host git identity into the sandbox so commits are attributed
         // to the actual developer without requiring manual setup.
         if (hostGitName) {
-          yield* execOk(
-            sandbox,
-            `git config --global user.name "${hostGitName.replace(/"/g, '\\"')}"`,
+          const cmd = `git config --global user.name "${hostGitName.replace(/"/g, '\\"')}"`;
+          yield* execOk(sandbox, cmd).pipe(
+            withTimeout(
+              GIT_SETUP_TIMEOUT_MS,
+              () =>
+                new GitSetupTimeoutError({
+                  message: `Git user.name config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
+                  timeoutMs: GIT_SETUP_TIMEOUT_MS,
+                  command: cmd,
+                }),
+            ),
           );
         }
         if (hostGitEmail) {
-          yield* execOk(
-            sandbox,
-            `git config --global user.email "${hostGitEmail.replace(/"/g, '\\"')}"`,
+          const cmd = `git config --global user.email "${hostGitEmail.replace(/"/g, '\\"')}"`;
+          yield* execOk(sandbox, cmd).pipe(
+            withTimeout(
+              GIT_SETUP_TIMEOUT_MS,
+              () =>
+                new GitSetupTimeoutError({
+                  message: `Git user.email config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
+                  timeoutMs: GIT_SETUP_TIMEOUT_MS,
+                  command: cmd,
+                }),
+            ),
           );
         }
 
@@ -128,6 +168,16 @@ export const withSandboxLifecycle = <A>(
           sandbox,
           "git rev-parse --abbrev-ref HEAD",
           { cwd: sandboxRepoDir },
+        ).pipe(
+          withTimeout(
+            GIT_SETUP_TIMEOUT_MS,
+            () =>
+              new GitSetupTimeoutError({
+                message: `Git branch detection timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
+                timeoutMs: GIT_SETUP_TIMEOUT_MS,
+                command: "git rev-parse --abbrev-ref HEAD",
+              }),
+          ),
         )).stdout.trim();
 
         if (hooks?.onSandboxReady?.length) {
@@ -139,7 +189,17 @@ export const withSandboxLifecycle = <A>(
               execOk(sandbox, hook.command, {
                 cwd: sandboxRepoDir,
                 sudo: hook.sudo,
-              }),
+              }).pipe(
+                withTimeout(
+                  HOOK_TIMEOUT_MS,
+                  () =>
+                    new HookTimeoutError({
+                      message: `Hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
+                      timeoutMs: HOOK_TIMEOUT_MS,
+                      command: hook.command,
+                    }),
+                ),
+              ),
             ),
             { concurrency: "unbounded" },
           );
@@ -224,7 +284,18 @@ export const withSandboxLifecycle = <A>(
               new SyncError({
                 message: String(e instanceof Error ? e.message : e),
               }),
-          }),
+          }).pipe(
+            withTimeout(
+              MERGE_TO_HOST_TIMEOUT_MS,
+              () =>
+                new MergeToHostTimeoutError({
+                  message: `Merge of '${resolvedBranch}' to '${hostCurrentBranch}' timed out after ${MERGE_TO_HOST_TIMEOUT_MS}ms`,
+                  timeoutMs: MERGE_TO_HOST_TIMEOUT_MS,
+                  sourceBranch: resolvedBranch,
+                  targetBranch: hostCurrentBranch,
+                }),
+            ),
+          ),
         );
       }
 
@@ -249,7 +320,16 @@ export const withSandboxLifecycle = <A>(
           } catch {
             return [];
           }
-        }),
+        }).pipe(
+          withTimeout(
+            COMMIT_COLLECTION_TIMEOUT_MS,
+            () =>
+              new CommitCollectionTimeoutError({
+                message: `Commit collection timed out after ${COMMIT_COLLECTION_TIMEOUT_MS}ms`,
+                timeoutMs: COMMIT_COLLECTION_TIMEOUT_MS,
+              }),
+          ),
+        ),
       );
 
       finalBranch = hostCurrentBranch;
@@ -269,7 +349,16 @@ export const withSandboxLifecycle = <A>(
             // Branch doesn't exist on host (no commits were produced)
             return [];
           }
-        }),
+        }).pipe(
+          withTimeout(
+            COMMIT_COLLECTION_TIMEOUT_MS,
+            () =>
+              new CommitCollectionTimeoutError({
+                message: `Commit collection timed out after ${COMMIT_COLLECTION_TIMEOUT_MS}ms`,
+                timeoutMs: COMMIT_COLLECTION_TIMEOUT_MS,
+              }),
+          ),
+        ),
       );
 
       finalBranch = targetBranch;

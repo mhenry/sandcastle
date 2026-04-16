@@ -18,7 +18,7 @@ import {
 } from "./AgentProvider.js";
 import { Sandbox } from "./SandboxFactory.js";
 import type { DockerError, SandboxError } from "./errors.js";
-import { TimeoutError } from "./errors.js";
+import { AgentIdleTimeoutError } from "./errors.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 
 const execAsync = promisify(exec);
@@ -1925,7 +1925,7 @@ describe("Orchestrator Display integration", () => {
     expect(statusEntries.every((e) => !e.message.startsWith("["))).toBe(true);
   });
 
-  it("fails with TimeoutError when idleTimeoutSeconds is exceeded with no output", async () => {
+  it("fails with AgentIdleTimeoutError when idleTimeoutSeconds is exceeded with no output", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-timeout-"));
 
     await initRepo(hostDir);
@@ -1958,9 +1958,9 @@ describe("Orchestrator Display integration", () => {
     expect(exitResult._tag).toBe("Failure");
     if (exitResult._tag === "Failure") {
       const err = Cause.squash(exitResult.cause);
-      expect(err).toBeInstanceOf(TimeoutError);
-      if (err instanceof TimeoutError) {
-        expect(err.idleTimeoutSeconds).toBe(0.1);
+      expect(err).toBeInstanceOf(AgentIdleTimeoutError);
+      if (err instanceof AgentIdleTimeoutError) {
+        expect(err.timeoutMs).toBe(100);
         expect(err.message).toContain("idle");
         expect(err.message).toContain("--idle-timeout");
       }

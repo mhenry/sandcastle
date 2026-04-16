@@ -4,12 +4,13 @@ import { join, resolve } from "node:path";
 import type { PlatformError } from "@effect/platform/Error";
 import {
   AgentError,
+  AgentIdleTimeoutError,
   CopyError,
   ExecError,
   SyncError,
-  TimeoutError,
   WorktreeError,
   type DockerError,
+  type SandboxError,
 } from "./errors.js";
 import * as WorkspaceManager from "./WorkspaceManager.js";
 import { copyToWorkspace } from "./CopyToWorkspace.js";
@@ -135,7 +136,7 @@ export class SandboxFactory extends Context.Tag("SandboxFactory")<
       makeEffect: (info: SandboxInfo) => Effect.Effect<A, E, R | Sandbox>,
     ) => Effect.Effect<
       WithSandboxResult<A>,
-      E | DockerError | WorktreeError | SyncError,
+      E | SandboxError,
       Exclude<R, Sandbox>
     >;
   }
@@ -201,26 +202,26 @@ const cleanupWorktree = (
   );
 
 /**
- * Attach the preserved worktree path to TimeoutError and AgentError so
+ * Attach the preserved worktree path to AgentIdleTimeoutError and AgentError so
  * programmatic callers can build on top of the preserved worktree.
  */
 const attachPreservedPath = <E>(
   path: string | undefined,
-  e: E | DockerError | WorktreeError | SyncError,
-): E | DockerError | WorktreeError | SyncError => {
+  e: E | SandboxError,
+): E | SandboxError => {
   if (path !== undefined) {
-    if (e instanceof TimeoutError) {
-      return new TimeoutError({
+    if (e instanceof AgentIdleTimeoutError) {
+      return new AgentIdleTimeoutError({
         message: e.message,
-        idleTimeoutSeconds: e.idleTimeoutSeconds,
+        timeoutMs: e.timeoutMs,
         preservedWorkspacePath: path,
-      }) as unknown as E | DockerError | WorktreeError | SyncError;
+      }) as unknown as E | SandboxError;
     }
     if (e instanceof AgentError) {
       return new AgentError({
         message: e.message,
         preservedWorkspacePath: path,
-      }) as unknown as E | DockerError | WorktreeError | SyncError;
+      }) as unknown as E | SandboxError;
     }
   }
   return e;
@@ -317,7 +318,7 @@ export const WorktreeDockerSandboxFactory = {
           makeEffect: (info: SandboxInfo) => Effect.Effect<A, E, R | Sandbox>,
         ): Effect.Effect<
           WithSandboxResult<A>,
-          E | DockerError | WorktreeError | SyncError,
+          E | SandboxError,
           Exclude<R, Sandbox>
         > => {
           // Isolated providers: create worktree, sync via git bundle
@@ -352,7 +353,7 @@ export const WorktreeDockerSandboxFactory = {
                     syncOut(worktreeInfo.path, handle as IsolatedSandboxHandle),
                 }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
                   A,
-                  E | DockerError | SyncError,
+                  E | SandboxError,
                   Exclude<R, Sandbox>
                 >,
               // Release: close handle, then cleanup worktree
@@ -373,9 +374,8 @@ export const WorktreeDockerSandboxFactory = {
                 value,
                 preservedWorkspacePath: preservedPath,
               })),
-              Effect.mapError(
-                (e: E | DockerError | WorktreeError | SyncError) =>
-                  attachPreservedPath(preservedPath, e),
+              Effect.mapError((e: E | SandboxError) =>
+                attachPreservedPath(preservedPath, e),
               ),
             );
           }
@@ -389,7 +389,7 @@ export const WorktreeDockerSandboxFactory = {
                 (e) =>
                   new WorktreeError({
                     message: `Failed to resolve git mounts: ${e}`,
-                  }) as E | DockerError | WorktreeError | SyncError,
+                  }) as E | SandboxError,
               ),
               Effect.flatMap((gitMounts) =>
                 Effect.acquireUseRelease(
@@ -409,7 +409,7 @@ export const WorktreeDockerSandboxFactory = {
                       applyToHost: () => Effect.void,
                     }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
                       A,
-                      E | DockerError,
+                      E | SandboxError,
                       Exclude<R, Sandbox>
                     >,
                   // Release
@@ -462,11 +462,7 @@ export const WorktreeDockerSandboxFactory = {
                   Effect.flatMap(
                     (
                       gitMounts,
-                    ): Effect.Effect<
-                      AcquireResult,
-                      DockerError | WorktreeError | SyncError,
-                      never
-                    > =>
+                    ): Effect.Effect<AcquireResult, SandboxError, never> =>
                       // sandboxProvider is guaranteed bind-mount here
                       // (isolated providers return early above)
                       startSandbox({
@@ -498,7 +494,7 @@ export const WorktreeDockerSandboxFactory = {
                 applyToHost: () => Effect.void,
               }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
                 A,
-                E | DockerError,
+                E | SandboxError,
                 Exclude<R, Sandbox>
               >,
             // Release: close provider handle, then remove/preserve worktree based on dirty state.
@@ -519,7 +515,7 @@ export const WorktreeDockerSandboxFactory = {
               value,
               preservedWorkspacePath,
             })),
-            Effect.mapError((e: E | DockerError | WorktreeError | SyncError) =>
+            Effect.mapError((e: E | SandboxError) =>
               attachPreservedPath(preservedWorkspacePath, e),
             ),
           );

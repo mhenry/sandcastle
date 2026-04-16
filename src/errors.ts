@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, Duration, Effect } from "effect";
 
 /** Command execution failed in the sandbox */
 export class ExecError extends Data.TaggedError("ExecError")<{
@@ -59,13 +59,105 @@ export class InitError extends Data.TaggedError("InitError")<{
   readonly message: string;
 }> {}
 
-/** Run exceeded the configured idle timeout */
-export class TimeoutError extends Data.TaggedError("TimeoutError")<{
+/** Run exceeded the configured agent idle timeout */
+export class AgentIdleTimeoutError extends Data.TaggedError(
+  "AgentIdleTimeoutError",
+)<{
   readonly message: string;
-  readonly idleTimeoutSeconds: number;
+  readonly timeoutMs: number;
   /** Host path to the preserved workspace, set when the workspace was kept after failure. */
   readonly preservedWorkspacePath?: string;
 }> {}
+
+/** Git worktree create or prune timed out */
+export class WorktreeTimeoutError extends Data.TaggedError(
+  "WorktreeTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly path: string;
+  readonly operation: "create" | "prune";
+}> {}
+
+/** Sandbox container start timed out */
+export class ContainerStartTimeoutError extends Data.TaggedError(
+  "ContainerStartTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+}> {}
+
+/** Copying files to workspace timed out */
+export class CopyToWorkspaceTimeoutError extends Data.TaggedError(
+  "CopyToWorkspaceTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly paths: string[];
+}> {}
+
+/** Git sync-in for isolated providers timed out */
+export class SyncInTimeoutError extends Data.TaggedError("SyncInTimeoutError")<{
+  readonly message: string;
+  readonly timeoutMs: number;
+}> {}
+
+/** onSandboxReady hook command timed out */
+export class HookTimeoutError extends Data.TaggedError("HookTimeoutError")<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly command: string;
+}> {}
+
+/** Git config setup command timed out */
+export class GitSetupTimeoutError extends Data.TaggedError(
+  "GitSetupTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly command: string;
+}> {}
+
+/** Prompt shell expression expansion timed out */
+export class PromptExpansionTimeoutError extends Data.TaggedError(
+  "PromptExpansionTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly expression: string;
+}> {}
+
+/** Commit collection timed out */
+export class CommitCollectionTimeoutError extends Data.TaggedError(
+  "CommitCollectionTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+}> {}
+
+/** Merge-to-host branch timed out */
+export class MergeToHostTimeoutError extends Data.TaggedError(
+  "MergeToHostTimeoutError",
+)<{
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly sourceBranch: string;
+  readonly targetBranch: string;
+}> {}
+
+/**
+ * Wrap an effect with a timeout that fails with a specific error on expiry.
+ * Uses `Effect.timeoutFail` under the hood.
+ */
+export const withTimeout =
+  <E>(timeoutMs: number, onTimeout: () => E) =>
+  <A, E2, R>(effect: Effect.Effect<A, E2, R>): Effect.Effect<A, E | E2, R> =>
+    effect.pipe(
+      Effect.timeoutFail({
+        duration: Duration.millis(timeoutMs),
+        onTimeout,
+      }),
+    );
 
 /** Union of all sandbox-related errors */
 export type SandboxError =
@@ -80,4 +172,13 @@ export type SandboxError =
   | AgentError
   | ConfigDirError
   | InitError
-  | TimeoutError;
+  | AgentIdleTimeoutError
+  | WorktreeTimeoutError
+  | ContainerStartTimeoutError
+  | CopyToWorkspaceTimeoutError
+  | SyncInTimeoutError
+  | HookTimeoutError
+  | GitSetupTimeoutError
+  | PromptExpansionTimeoutError
+  | CommitCollectionTimeoutError
+  | MergeToHostTimeoutError;

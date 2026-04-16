@@ -30,7 +30,16 @@ export const formatErrorMessage = (error: SandboxError): string => {
       return `${error.message}`;
     case "InitError":
       return `${error.message}`;
-    case "TimeoutError":
+    case "AgentIdleTimeoutError":
+    case "WorktreeTimeoutError":
+    case "ContainerStartTimeoutError":
+    case "CopyToWorkspaceTimeoutError":
+    case "SyncInTimeoutError":
+    case "HookTimeoutError":
+    case "GitSetupTimeoutError":
+    case "PromptExpansionTimeoutError":
+    case "CommitCollectionTimeoutError":
+    case "MergeToHostTimeoutError":
       return error.message;
   }
 };
@@ -63,5 +72,14 @@ export const withFriendlyErrors = <A, E, R>(
     AgentError: showErrorAndExit,
     ConfigDirError: showErrorAndExit,
     InitError: showErrorAndExit,
-    TimeoutError: showErrorAndExit,
+    AgentIdleTimeoutError: showErrorAndExit,
+    WorktreeTimeoutError: showErrorAndExit,
+    ContainerStartTimeoutError: showErrorAndExit,
+    CopyToWorkspaceTimeoutError: showErrorAndExit,
+    SyncInTimeoutError: showErrorAndExit,
+    HookTimeoutError: showErrorAndExit,
+    GitSetupTimeoutError: showErrorAndExit,
+    PromptExpansionTimeoutError: showErrorAndExit,
+    CommitCollectionTimeoutError: showErrorAndExit,
+    MergeToHostTimeoutError: showErrorAndExit,
   }) as Effect.Effect<A, Exclude<E, SandboxError>, R | Display>;

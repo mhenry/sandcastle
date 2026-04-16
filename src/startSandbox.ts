@@ -1,7 +1,14 @@
 import { Effect, Layer } from "effect";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { SyncError, WorktreeError, type DockerError } from "./errors.js";
+import {
+  ContainerStartTimeoutError,
+  SyncError,
+  SyncInTimeoutError,
+  WorktreeError,
+  withTimeout,
+  type DockerError,
+} from "./errors.js";
 import type {
   SandboxProvider,
   BindMountSandboxProvider,
@@ -46,6 +53,9 @@ export interface StartSandboxResult {
   workspacePath: string;
 }
 
+const CONTAINER_START_TIMEOUT_MS = 120_000;
+const SYNC_IN_TIMEOUT_MS = 120_000;
+
 /**
  * Start a sandbox by dispatching on `provider.tag`.
  *
@@ -59,7 +69,11 @@ export const startSandbox = (
   options: StartSandboxOptions,
 ): Effect.Effect<
   StartSandboxResult,
-  DockerError | WorktreeError | SyncError
+  | DockerError
+  | WorktreeError
+  | SyncError
+  | ContainerStartTimeoutError
+  | SyncInTimeoutError
 > => {
   if (options.provider.tag === "bind-mount") {
     return startBindMountSandbox(options as StartSandboxBindMountOptions);
@@ -69,7 +83,10 @@ export const startSandbox = (
 
 const startBindMountSandbox = (
   options: StartSandboxBindMountOptions,
-): Effect.Effect<StartSandboxResult, DockerError | WorktreeError> =>
+): Effect.Effect<
+  StartSandboxResult,
+  DockerError | WorktreeError | ContainerStartTimeoutError
+> =>
   Effect.tryPromise({
     try: () => {
       const mounts = [
@@ -96,11 +113,26 @@ const startBindMountSandbox = (
       sandboxLayer: makeSandboxLayerFromHandle(handle),
       workspacePath: handle.workspacePath,
     })),
+    withTimeout(
+      CONTAINER_START_TIMEOUT_MS,
+      () =>
+        new ContainerStartTimeoutError({
+          message: `Sandbox container start timed out after ${CONTAINER_START_TIMEOUT_MS}ms`,
+          timeoutMs: CONTAINER_START_TIMEOUT_MS,
+        }),
+    ),
   );
 
 const startIsolatedSandbox = (
   options: StartSandboxIsolatedOptions,
-): Effect.Effect<StartSandboxResult, DockerError | WorktreeError | SyncError> =>
+): Effect.Effect<
+  StartSandboxResult,
+  | DockerError
+  | WorktreeError
+  | SyncError
+  | ContainerStartTimeoutError
+  | SyncInTimeoutError
+> =>
   Effect.gen(function* () {
     const handle = yield* Effect.tryPromise({
       try: () => options.provider.create({ env: options.env }),
@@ -108,9 +140,27 @@ const startIsolatedSandbox = (
         new WorktreeError({
           message: `Isolated provider '${options.provider.name}' setup failed: ${e instanceof Error ? e.message : String(e)}`,
         }),
-    });
+    }).pipe(
+      withTimeout(
+        CONTAINER_START_TIMEOUT_MS,
+        () =>
+          new ContainerStartTimeoutError({
+            message: `Isolated sandbox container start timed out after ${CONTAINER_START_TIMEOUT_MS}ms`,
+            timeoutMs: CONTAINER_START_TIMEOUT_MS,
+          }),
+      ),
+    );
 
-    yield* syncIn(options.hostRepoDir, handle);
+    yield* syncIn(options.hostRepoDir, handle).pipe(
+      withTimeout(
+        SYNC_IN_TIMEOUT_MS,
+        () =>
+          new SyncInTimeoutError({
+            message: `Sync-in timed out after ${SYNC_IN_TIMEOUT_MS}ms`,
+            timeoutMs: SYNC_IN_TIMEOUT_MS,
+          }),
+      ),
+    );
 
     if (options.copyPaths && options.copyPaths.length > 0) {
       for (const relativePath of options.copyPaths) {

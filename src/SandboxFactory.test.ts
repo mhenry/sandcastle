@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AgentError, TimeoutError, WorktreeError } from "./errors.js";
+import { AgentError, AgentIdleTimeoutError, WorktreeError } from "./errors.js";
 import { SilentDisplay, type DisplayEntry } from "./Display.js";
 import {
   createBindMountSandboxProvider,
@@ -321,14 +321,17 @@ describe("WorktreeDockerSandboxFactory", () => {
     expect(mockProvider.closeCalls).toBe(1);
   });
 
-  it("attaches preservedWorkspacePath to TimeoutError on failure with dirty worktree", async () => {
+  it("attaches preservedWorkspacePath to AgentIdleTimeoutError on failure with dirty worktree", async () => {
     mockHasUncommittedChanges.mockReturnValue(Effect.succeed(true));
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const factory = yield* SandboxFactory;
         yield* factory.withSandbox(() =>
           Effect.fail(
-            new TimeoutError({ message: "timed out", idleTimeoutSeconds: 30 }),
+            new AgentIdleTimeoutError({
+              message: "timed out",
+              timeoutMs: 30_000,
+            }),
           ),
         );
       }).pipe(Effect.provide(makeLayer())),
@@ -338,10 +341,10 @@ describe("WorktreeDockerSandboxFactory", () => {
     if (!Exit.isFailure(exit)) throw new Error("unreachable");
     expect(exit.cause._tag).toBe("Fail");
     if (exit.cause._tag !== "Fail") throw new Error("unreachable");
-    expect(exit.cause.error).toBeInstanceOf(TimeoutError);
-    expect((exit.cause.error as TimeoutError).preservedWorkspacePath).toBe(
-      worktreePath,
-    );
+    expect(exit.cause.error).toBeInstanceOf(AgentIdleTimeoutError);
+    expect(
+      (exit.cause.error as AgentIdleTimeoutError).preservedWorkspacePath,
+    ).toBe(worktreePath);
   });
 
   it("attaches preservedWorkspacePath to AgentError on failure with dirty worktree", async () => {
@@ -485,14 +488,17 @@ describe("WorktreeDockerSandboxFactory", () => {
     stderrSpy.mockRestore();
   });
 
-  it("does not attach preservedWorkspacePath to TimeoutError when worktree is clean on failure", async () => {
+  it("does not attach preservedWorkspacePath to AgentIdleTimeoutError when worktree is clean on failure", async () => {
     mockHasUncommittedChanges.mockReturnValue(Effect.succeed(false));
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const factory = yield* SandboxFactory;
         yield* factory.withSandbox(() =>
           Effect.fail(
-            new TimeoutError({ message: "timed out", idleTimeoutSeconds: 30 }),
+            new AgentIdleTimeoutError({
+              message: "timed out",
+              timeoutMs: 30_000,
+            }),
           ),
         );
       }).pipe(Effect.provide(makeLayer())),
@@ -502,9 +508,9 @@ describe("WorktreeDockerSandboxFactory", () => {
     if (!Exit.isFailure(exit)) throw new Error("unreachable");
     expect(exit.cause._tag).toBe("Fail");
     if (exit.cause._tag !== "Fail") throw new Error("unreachable");
-    expect(exit.cause.error).toBeInstanceOf(TimeoutError);
+    expect(exit.cause.error).toBeInstanceOf(AgentIdleTimeoutError);
     expect(
-      (exit.cause.error as TimeoutError).preservedWorkspacePath,
+      (exit.cause.error as AgentIdleTimeoutError).preservedWorkspacePath,
     ).toBeUndefined();
   });
 

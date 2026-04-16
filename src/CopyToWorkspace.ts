@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
+import { CopyToWorkspaceTimeoutError, withTimeout } from "./errors.js";
+
+const COPY_TO_WORKSPACE_TIMEOUT_MS = 60_000;
 
 /**
  * Copy files and directories from the host repo root to the worktree root,
@@ -12,7 +15,7 @@ export const copyToWorkspace = (
   paths: string[],
   hostRepoDir: string,
   worktreePath: string,
-): Effect.Effect<void, never> =>
+): Effect.Effect<void, CopyToWorkspaceTimeoutError> =>
   Effect.gen(function* () {
     for (const relativePath of paths) {
       const src = join(hostRepoDir, relativePath);
@@ -33,4 +36,14 @@ export const copyToWorkspace = (
         });
       });
     }
-  });
+  }).pipe(
+    withTimeout(
+      COPY_TO_WORKSPACE_TIMEOUT_MS,
+      () =>
+        new CopyToWorkspaceTimeoutError({
+          message: `Copying files to workspace timed out after ${COPY_TO_WORKSPACE_TIMEOUT_MS}ms`,
+          timeoutMs: COPY_TO_WORKSPACE_TIMEOUT_MS,
+          paths,
+        }),
+    ),
+  );

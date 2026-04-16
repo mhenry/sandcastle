@@ -1,14 +1,24 @@
 import { Effect } from "effect";
 import { Display } from "./Display.js";
-import { PromptError } from "./errors.js";
+import {
+  PromptError,
+  PromptExpansionTimeoutError,
+  withTimeout,
+} from "./errors.js";
 import type { ExecError } from "./errors.js";
 import type { SandboxService } from "./SandboxFactory.js";
+
+const PROMPT_EXPANSION_TIMEOUT_MS = 30_000;
 
 export const preprocessPrompt = (
   prompt: string,
   sandbox: SandboxService,
   cwd: string,
-): Effect.Effect<string, ExecError | PromptError, Display> => {
+): Effect.Effect<
+  string,
+  ExecError | PromptError | PromptExpansionTimeoutError,
+  Display
+> => {
   const pattern = /!`([^`]+)`/g;
   const matches = [...prompt.matchAll(pattern)];
 
@@ -39,6 +49,16 @@ export const preprocessPrompt = (
                       }),
                     )
                   : Effect.succeed(execResult.stdout.trimEnd()),
+            ).pipe(
+              withTimeout(
+                PROMPT_EXPANSION_TIMEOUT_MS,
+                () =>
+                  new PromptExpansionTimeoutError({
+                    message: `Shell expression \`${command}\` timed out after ${PROMPT_EXPANSION_TIMEOUT_MS}ms`,
+                    timeoutMs: PROMPT_EXPANSION_TIMEOUT_MS,
+                    expression: command,
+                  }),
+              ),
             );
           }),
           { concurrency: "unbounded" },
