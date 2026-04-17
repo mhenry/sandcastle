@@ -498,10 +498,12 @@ describe("createSandbox", () => {
       branch: "test-hooks",
       sandbox: testSandbox,
       hooks: {
-        onSandboxReady: [
-          { command: "touch /tmp/hook-marker.txt" },
-          { command: "echo 'hook-ran' > hook-output.txt" },
-        ],
+        sandbox: {
+          onSandboxReady: [
+            { command: "touch /tmp/hook-marker.txt" },
+            { command: "echo 'hook-ran' > hook-output.txt" },
+          ],
+        },
       },
       _test: {
         hostRepoDir: hostDir,

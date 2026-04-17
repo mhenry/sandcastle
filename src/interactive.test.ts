@@ -565,7 +565,9 @@ describe("interactive()", () => {
       sandbox: provider,
       prompt: "test",
       hooks: {
-        onSandboxReady: [{ command: "touch hook-ran.txt" }],
+        sandbox: {
+          onSandboxReady: [{ command: "touch hook-ran.txt" }],
+        },
       },
     });
 

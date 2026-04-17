@@ -23,6 +23,7 @@ import type {
   IsolatedSandboxHandle,
   NoSandboxHandle,
 } from "./SandboxProvider.js";
+import { runHostHooks, type SandboxHooks } from "./SandboxLifecycle.js";
 import { startSandbox } from "./startSandbox.js";
 import { syncOut } from "./syncOut.js";
 
@@ -157,6 +158,8 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly branchStrategy: BranchStrategy;
     /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
     readonly throwOnDuplicateWorktree?: boolean;
+    /** Lifecycle hooks grouped by execution location (host or sandbox). */
+    readonly hooks?: SandboxHooks;
   }
 >() {}
 
@@ -283,6 +286,7 @@ export const WorktreeDockerSandboxFactory = {
         sandboxProvider,
         branchStrategy,
         throwOnDuplicateWorktree,
+        hooks,
       } = yield* SandboxConfig;
 
       const isHeadMode = branchStrategy.type === "head";
@@ -326,8 +330,16 @@ export const WorktreeDockerSandboxFactory = {
             let preservedPath: string | undefined;
 
             return Effect.acquireUseRelease(
-              // Acquire: prune stale worktrees, create worktree, then start sandbox
+              // Acquire: prune stale worktrees, create worktree, run host hooks, then start sandbox
               pruneAndCreate().pipe(
+                Effect.tap((worktreeInfo) =>
+                  hooks?.host?.onWorktreeReady?.length
+                    ? runHostHooks(
+                        hooks.host.onWorktreeReady,
+                        worktreeInfo.path,
+                      )
+                    : Effect.void,
+                ),
                 Effect.flatMap((worktreeInfo) =>
                   startSandbox({
                     provider: sandboxProvider,
@@ -383,7 +395,12 @@ export const WorktreeDockerSandboxFactory = {
           if (isHeadMode) {
             // Head mode: bind-mount host directory directly, no worktree
             const gitPath = join(hostRepoDir, ".git");
-            return resolveGitMounts(gitPath).pipe(
+            return (
+              hooks?.host?.onWorktreeReady?.length
+                ? runHostHooks(hooks.host.onWorktreeReady, hostRepoDir)
+                : Effect.void
+            ).pipe(
+              Effect.andThen(resolveGitMounts(gitPath)),
               Effect.provideService(FileSystem.FileSystem, fileSystem),
               Effect.mapError(
                 (e) =>
@@ -434,7 +451,7 @@ export const WorktreeDockerSandboxFactory = {
           let preservedWorktreePath: string | undefined;
 
           return Effect.acquireUseRelease(
-            // Acquire: prune stale worktrees (best-effort), create worktree, then start sandbox
+            // Acquire: prune stale worktrees (best-effort), create worktree, run host hooks, then start sandbox
             pruneAndCreate().pipe(
               Effect.flatMap((worktreeInfo) =>
                 (copyPaths && copyPaths.length > 0
@@ -444,6 +461,11 @@ export const WorktreeDockerSandboxFactory = {
                     )
                   : Effect.succeed(undefined)
                 ).pipe(Effect.map(() => worktreeInfo)),
+              ),
+              Effect.tap((worktreeInfo) =>
+                hooks?.host?.onWorktreeReady?.length
+                  ? runHostHooks(hooks.host.onWorktreeReady, worktreeInfo.path)
+                  : Effect.void,
               ),
               Effect.flatMap((worktreeInfo) => {
                 const gitPath = join(hostRepoDir, ".git");

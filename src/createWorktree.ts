@@ -11,7 +11,11 @@ import {
   resolveGitMounts,
   SANDBOX_REPO_DIR,
 } from "./SandboxFactory.js";
-import { withSandboxLifecycle, type SandboxHooks } from "./SandboxLifecycle.js";
+import {
+  withSandboxLifecycle,
+  runHostHooks,
+  type SandboxHooks,
+} from "./SandboxLifecycle.js";
 import type {
   AnySandboxProvider,
   SandboxProvider,
@@ -51,6 +55,10 @@ export interface CreateWorktreeOptions {
   readonly branchStrategy: WorktreeBranchStrategy;
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToWorktree?: string[];
+  /** Lifecycle hooks grouped by execution location (host or sandbox).
+   *  Only `host.onWorktreeReady` is executed here — other hooks are passed through
+   *  to `run()`, `interactive()`, or `createSandbox()`. */
+  readonly hooks?: SandboxHooks;
   /** @internal Test-only overrides. */
   readonly _test?: {
     readonly hostRepoDir?: string;
@@ -121,13 +129,8 @@ export interface WorktreeRunResult {
 export interface WorktreeCreateSandboxOptions {
   /** Sandbox provider (e.g. docker({ imageName: "sandcastle:myrepo" })). */
   readonly sandbox: SandboxProvider;
-  /** One-time setup hooks to run when the sandbox is first created. */
-  readonly hooks?: {
-    readonly onSandboxReady?: ReadonlyArray<{
-      command: string;
-      sudo?: boolean;
-    }>;
-  };
+  /** Lifecycle hooks grouped by execution location (host or sandbox). */
+  readonly hooks?: SandboxHooks;
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToWorktree?: string[];
   /** @internal Test-only overrides to bypass the sandbox provider. */
@@ -179,6 +182,10 @@ export const createWorktree = async (
     const info = yield* WorktreeManager.create(hostRepoDir, { branch });
     if (options.copyToWorktree && options.copyToWorktree.length > 0) {
       yield* copyToWorktree(options.copyToWorktree, hostRepoDir, info.path);
+    }
+    // Run host.onWorktreeReady hooks after copyToWorktree, before sandbox creation
+    if (options.hooks?.host?.onWorktreeReady?.length) {
+      yield* runHostHooks(options.hooks.host.onWorktreeReady, info.path);
     }
     return info;
   }).pipe(Effect.provide(NodeContext.layer), Effect.runPromise);

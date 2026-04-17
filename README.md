@@ -165,10 +165,15 @@ const result = await run({
   // Display name for this run, shown as a prefix in log output.
   name: "fix-issue-42",
 
-  // Lifecycle hooks — arrays of shell commands run in parallel inside the sandbox.
+  // Lifecycle hooks grouped by where they run: host or sandbox.
   hooks: {
-    // Runs after the sandbox is ready.
-    onSandboxReady: [{ command: "npm install" }],
+    host: {
+      onWorktreeReady: [{ command: "cp .env.example .env" }],
+      onSandboxReady: [{ command: "echo setup done" }],
+    },
+    sandbox: {
+      onSandboxReady: [{ command: "npm install" }],
+    },
   },
 
   // Host-relative file paths to copy into the sandbox before the container starts.
@@ -227,7 +232,7 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 await using sandbox = await createSandbox({
   branch: "agent/fix-42",
   sandbox: docker(),
-  hooks: { onSandboxReady: [{ command: "npm install" }] },
+  hooks: { sandbox: { onSandboxReady: [{ command: "npm install" }] } },
 });
 
 // Step 1: implement
@@ -270,7 +275,7 @@ if (closeResult.preservedWorktreePath) {
 | -------------------------- | --------------- | ------- | ------------------------------------------------------------------------ |
 | `branch`                   | string          | —       | **Required.** Explicit branch for the sandbox                            |
 | `sandbox`                  | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`, `podman()`)             |
-| `hooks`                    | object          | —       | Lifecycle hooks (`onSandboxReady`) — run once at creation time           |
+| `hooks`                    | SandboxHooks    | —       | Lifecycle hooks (`host.*`, `sandbox.*`) — run once at creation time      |
 | `copyToWorktree`           | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time       |
 | `throwOnDuplicateWorktree` | boolean         | `true`  | When `false`, reuse an existing worktree instead of failing on collision |
 
@@ -351,7 +356,7 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
 await using sandbox = await wt.createSandbox({
   sandbox: docker(),
-  hooks: { onSandboxReady: [{ command: "npm install" }] },
+  hooks: { sandbox: { onSandboxReady: [{ command: "npm install" }] } },
 });
 
 // sandbox.close() tears down the container only — the worktree stays
@@ -392,7 +397,7 @@ await sandbox.close();
 | `prompt`     | string                 | —             | Inline prompt (mutually exclusive with `promptFile`) |
 | `promptFile` | string                 | —             | Path to prompt file                                  |
 | `name`       | string                 | —             | Optional session name                                |
-| `hooks`      | SandboxHooks           | —             | Hooks to run during sandbox lifecycle                |
+| `hooks`      | SandboxHooks           | —             | Lifecycle hooks (`host.*`, `sandbox.*`)              |
 | `promptArgs` | PromptArgs             | —             | Key-value map for `{{KEY}}` placeholder substitution |
 | `env`        | Record<string, string> | —             | Environment variables to inject into the sandbox     |
 
@@ -409,7 +414,7 @@ await sandbox.close();
 | `idleTimeoutSeconds` | number                 | 600     | Idle timeout in seconds                                       |
 | `name`               | string                 | —       | Optional run name                                             |
 | `logging`            | LoggingOption          | file    | Logging mode                                                  |
-| `hooks`              | SandboxHooks           | —       | Hooks to run during sandbox lifecycle                         |
+| `hooks`              | SandboxHooks           | —       | Lifecycle hooks (`host.*`, `sandbox.*`)                       |
 | `promptArgs`         | PromptArgs             | —       | Key-value map for `{{KEY}}` placeholder substitution          |
 | `env`                | Record<string, string> | —       | Environment variables to inject into the sandbox              |
 
@@ -429,7 +434,7 @@ await sandbox.close();
 | Option           | Type            | Default | Description                                                         |
 | ---------------- | --------------- | ------- | ------------------------------------------------------------------- |
 | `sandbox`        | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`)                    |
-| `hooks`          | SandboxHooks    | —       | One-time setup hooks to run when the sandbox is first created       |
+| `hooks`          | SandboxHooks    | —       | Lifecycle hooks (`host.*`, `sandbox.*`)                             |
 | `copyToWorktree` | string[]        | —       | Host-relative file paths to copy into the worktree at creation time |
 
 ## How it works
@@ -463,7 +468,7 @@ You must provide exactly one of:
 
 Use `` !`command` `` expressions in your prompt to pull in dynamic context. Each expression is replaced with the command's stdout before the prompt is sent to the agent. All expressions in a prompt run **in parallel** for faster expansion.
 
-Commands run **inside the sandbox** after `onSandboxReady` hooks complete, so they see the same repo state the agent sees (including installed dependencies).
+Commands run **inside the sandbox** after `sandbox.onSandboxReady` hooks complete, so they see the same repo state the agent sees (including installed dependencies).
 
 ```markdown
 # Open issues
@@ -626,7 +631,7 @@ Removes the Podman image.
 | `prompt`                   | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                                                       |
 | `promptFile`               | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                                                     |
 | `maxIterations`            | number             | `1`                           | Maximum iterations to run                                                                                                                                  |
-| `hooks`                    | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                                                         |
+| `hooks`                    | SandboxHooks       | —                             | Lifecycle hooks (`host.*`, `sandbox.*`)                                                                                                                    |
 | `name`                     | string             | —                             | Display name for the run, shown as a prefix in log output                                                                                                  |
 | `promptArgs`               | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                                                       |
 | `branchStrategy`           | BranchStrategy     | per-provider default          | Branch strategy: `{ type: 'head' }`, `{ type: 'merge-to-head' }`, or `{ type: 'branch', branch: '…' }`                                                     |
@@ -1016,27 +1021,35 @@ Add your project-specific dependencies (e.g., language runtimes, build tools) to
 
 ### Hooks
 
-Hooks are arrays of `{ command, sudo? }` objects executed **in parallel** inside the sandbox. All commands within a hook point run concurrently — if any command exits with a non-zero code, the operation fails after all commands settle. To enforce ordering between commands, combine them with `&&` in a single command string.
-
-| Hook             | When it runs               | Working directory      |
-| ---------------- | -------------------------- | ---------------------- |
-| `onSandboxReady` | After the sandbox is ready | Sandbox repo directory |
-
-**`onSandboxReady`** runs after the sandbox is ready. Use it for dependency installation or build steps (e.g., `npm install`).
-
-Set `sudo: true` to run a command with elevated privileges inside the sandbox:
+Hooks are grouped by **where** they run — `host` (on the developer's machine) or `sandbox` (inside the container):
 
 ```ts
-await run({
-  hooks: {
+hooks: {
+  host: {
+    onWorktreeReady: [{ command: "cp .env.example .env" }],
+    onSandboxReady:  [{ command: "echo sandbox is up" }],
+  },
+  sandbox: {
     onSandboxReady: [
-      { command: "apt-get install -y ffmpeg", sudo: true },
       { command: "npm install" },
+      { command: "apt-get install -y ffmpeg", sudo: true },
     ],
   },
-  // ...
-});
+}
 ```
+
+| Hook                     | Runs on | When                                         | Working directory                           |
+| ------------------------ | ------- | -------------------------------------------- | ------------------------------------------- |
+| `host.onWorktreeReady`   | Host    | After `copyToWorktree`, before sandbox start | Worktree path (host repo root under `head`) |
+| `host.onSandboxReady`    | Host    | After sandbox is up                          | Worktree path (host repo root under `head`) |
+| `sandbox.onSandboxReady` | Sandbox | After sandbox is up                          | Sandbox repo directory                      |
+
+**Ordering:** `copyToWorktree` -> `host.onWorktreeReady` (sequential) -> sandbox created -> `host.onSandboxReady` + `sandbox.onSandboxReady` (parallel).
+
+- **Host hooks** accept `{ command: string }` — no `sudo`, no `cwd`. Use `cd` or inline env in the command string.
+- **Sandbox hooks** accept `{ command: string; sudo?: boolean }` — set `sudo: true` for elevated privileges.
+- Within each hook point, sandbox hooks run in parallel; host hooks within `onSandboxReady` also run in parallel with sandbox hooks. `host.onWorktreeReady` hooks run sequentially in declared order.
+- If any hook exits non-zero, setup fails fast.
 
 ## Development
 

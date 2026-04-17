@@ -7,11 +7,13 @@ const { commits, branch } = await sandcastle.run({
   agent: sandcastle.claudeCode("claude-sonnet-4-6"),
   prompt: "Add /foobar to the .gitignore, then commit.",
   hooks: {
-    onSandboxReady: [
-      {
-        command: "npm install && npm run build",
-      },
-    ],
+    sandbox: {
+      onSandboxReady: [
+        {
+          command: "npm install && npm run build",
+        },
+      ],
+    },
   },
 });
 

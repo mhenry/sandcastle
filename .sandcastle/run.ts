@@ -64,7 +64,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           throwOnDuplicateWorktree: false,
           copyToWorkspace: ["node_modules"],
           hooks: {
-            onSandboxReady: [{ command: "npm install && npm run build" }],
+            sandbox: {
+              onSandboxReady: [{ command: "npm install && npm run build" }],
+            },
           },
         });
 

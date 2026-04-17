@@ -38,11 +38,13 @@ await run({
   // platform-specific binaries and any packages added since the last copy.
   copyToWorktree: ["node_modules"],
 
-  // Lifecycle hooks — commands that run inside the sandbox at specific points.
+  // Lifecycle hooks — commands grouped by where they run (host or sandbox).
   hooks: {
-    // onSandboxReady runs once after the sandbox is initialised and the repo is
-    // synced in, before the agent starts. Use it to install dependencies or run
-    // any other setup steps your project needs.
-    onSandboxReady: [{ command: "npm install" }],
+    sandbox: {
+      // onSandboxReady runs once after the sandbox is initialised and the repo is
+      // synced in, before the agent starts. Use it to install dependencies or run
+      // any other setup steps your project needs.
+      onSandboxReady: [{ command: "npm install" }],
+    },
   },
 });

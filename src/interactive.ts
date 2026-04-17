@@ -11,7 +11,11 @@ import {
   resolveGitMounts,
   SANDBOX_REPO_DIR,
 } from "./SandboxFactory.js";
-import { withSandboxLifecycle, type SandboxHooks } from "./SandboxLifecycle.js";
+import {
+  withSandboxLifecycle,
+  runHostHooks,
+  type SandboxHooks,
+} from "./SandboxLifecycle.js";
 import type {
   AnySandboxProvider,
   BranchStrategy,
@@ -236,6 +240,14 @@ export const interactive = async (
           ),
         );
       }
+
+      // Run host.onWorktreeReady hooks
+      if (hooks?.host?.onWorktreeReady?.length) {
+        yield* runHostHooks(hooks.host.onWorktreeReady, worktreeInfo!.path);
+      }
+    } else if (hooks?.host?.onWorktreeReady?.length) {
+      // Head strategy: cwd is the host repo root
+      yield* runHostHooks(hooks.host.onWorktreeReady, hostRepoDir);
     }
 
     // 6. Start sandbox

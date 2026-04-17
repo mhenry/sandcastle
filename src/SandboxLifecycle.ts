@@ -59,11 +59,53 @@ const execOkWithGitTimeout = (
 const execAsync = promisify(exec);
 
 export type SandboxHooks = {
-  readonly onSandboxReady?: ReadonlyArray<{
-    readonly command: string;
-    readonly sudo?: boolean;
-  }>;
+  readonly host?: {
+    readonly onWorktreeReady?: ReadonlyArray<{
+      readonly command: string;
+    }>;
+    readonly onSandboxReady?: ReadonlyArray<{
+      readonly command: string;
+    }>;
+  };
+  readonly sandbox?: {
+    readonly onSandboxReady?: ReadonlyArray<{
+      readonly command: string;
+      readonly sudo?: boolean;
+    }>;
+  };
 };
+
+/**
+ * Runs an array of host-side hook commands sequentially.
+ * Each command runs on the host with the given cwd.
+ * Fails fast on non-zero exit.
+ */
+export const runHostHooks = (
+  hooks: ReadonlyArray<{ readonly command: string }>,
+  cwd: string,
+): Effect.Effect<void, ExecError | HookTimeoutError> =>
+  Effect.gen(function* () {
+    for (const hook of hooks) {
+      yield* Effect.tryPromise({
+        try: () => execAsync(hook.command, { cwd }),
+        catch: (err) =>
+          new ExecError({
+            command: hook.command,
+            message: `Host hook failed: ${hook.command}\n${err instanceof Error ? err.message : String(err)}`,
+          }),
+      }).pipe(
+        withTimeout(
+          HOOK_TIMEOUT_MS,
+          () =>
+            new HookTimeoutError({
+              message: `Host hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
+              timeoutMs: HOOK_TIMEOUT_MS,
+              command: hook.command,
+            }),
+        ),
+      );
+    }
+  });
 
 export interface SandboxLifecycleOptions {
   readonly hostRepoDir: string;
@@ -127,6 +169,10 @@ export const withSandboxLifecycle = <A>(
       return [nameResult, emailResult] as const;
     });
 
+    // For host-side operations, use hostWorktreePath (the real path on the host)
+    // instead of sandboxRepoDir (which may be a sandbox path like /home/agent/workspace).
+    const hostSideWorktreePath = hostWorktreePath ?? sandboxRepoDir;
+
     // Setup: onSandboxReady hooks
     let resolvedBranch = "";
     yield* display.taskLog("Setting up sandbox", (message) =>
@@ -161,39 +207,72 @@ export const withSandboxLifecycle = <A>(
           { cwd: sandboxRepoDir },
         )).stdout.trim();
 
-        if (hooks?.onSandboxReady?.length) {
-          for (const hook of hooks.onSandboxReady) {
+        // Run sandbox.onSandboxReady and host.onSandboxReady in parallel
+        const sandboxHooks = hooks?.sandbox?.onSandboxReady;
+        const hostOnSandboxReady = hooks?.host?.onSandboxReady;
+
+        if (sandboxHooks?.length) {
+          for (const hook of sandboxHooks) {
             message(hook.command);
           }
-          yield* Effect.all(
-            hooks.onSandboxReady.map((hook) =>
-              execOk(sandbox, hook.command, {
-                cwd: sandboxRepoDir,
-                sudo: hook.sudo,
-              }).pipe(
-                withTimeout(
-                  HOOK_TIMEOUT_MS,
-                  () =>
-                    new HookTimeoutError({
-                      message: `Hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
-                      timeoutMs: HOOK_TIMEOUT_MS,
-                      command: hook.command,
-                    }),
-                ),
-              ),
+        }
+        if (hostOnSandboxReady?.length) {
+          for (const hook of hostOnSandboxReady) {
+            message(`[host] ${hook.command}`);
+          }
+        }
+
+        const sandboxHookEffects = (sandboxHooks ?? []).map((hook) =>
+          execOk(sandbox, hook.command, {
+            cwd: sandboxRepoDir,
+            sudo: hook.sudo,
+          }).pipe(
+            withTimeout(
+              HOOK_TIMEOUT_MS,
+              () =>
+                new HookTimeoutError({
+                  message: `Hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
+                  timeoutMs: HOOK_TIMEOUT_MS,
+                  command: hook.command,
+                }),
             ),
-            { concurrency: "unbounded" },
-          );
+          ),
+        );
+
+        const hostHookEffects = (hostOnSandboxReady ?? []).map((hook) =>
+          Effect.tryPromise({
+            try: () =>
+              execAsync(hook.command, {
+                cwd: hostSideWorktreePath,
+              }),
+            catch: (err) =>
+              new ExecError({
+                command: hook.command,
+                message: `Host hook failed: ${hook.command}\n${err instanceof Error ? err.message : String(err)}`,
+              }),
+          }).pipe(
+            withTimeout(
+              HOOK_TIMEOUT_MS,
+              () =>
+                new HookTimeoutError({
+                  message: `Host hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
+                  timeoutMs: HOOK_TIMEOUT_MS,
+                  command: hook.command,
+                }),
+            ),
+          ),
+        );
+
+        const allOnSandboxReady = [...sandboxHookEffects, ...hostHookEffects];
+        if (allOnSandboxReady.length > 0) {
+          yield* Effect.all(allOnSandboxReady, {
+            concurrency: "unbounded",
+          });
         }
       }),
     );
 
     const targetBranch = branch ?? resolvedBranch;
-
-    // For host-side git operations in worktree mode, use hostWorktreePath
-    // (the real path on the host) instead of sandboxRepoDir (which may be a sandbox path
-    // like /home/agent/workspace that doesn't exist on the host).
-    const hostSideWorktreePath = hostWorktreePath ?? sandboxRepoDir;
 
     // Record base HEAD from the host worktree (not the sandbox).
     // For bind-mount providers, these are the same. For isolated providers,

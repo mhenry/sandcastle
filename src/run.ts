@@ -19,6 +19,7 @@ import type { SandboxProvider, BranchStrategy } from "./SandboxProvider.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { formatErrorMessage } from "./ErrorHandler.js";
 import type { SandboxError } from "./errors.js";
+import type { SandboxHooks } from "./SandboxLifecycle.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
 import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
 import {
@@ -143,13 +144,8 @@ export interface RunOptions {
   readonly promptFile?: string;
   /** Maximum iterations to run (default: 1) */
   readonly maxIterations?: number;
-  /** Hooks to run during sandbox lifecycle */
-  readonly hooks?: {
-    readonly onSandboxReady?: ReadonlyArray<{
-      command: string;
-      sudo?: boolean;
-    }>;
-  };
+  /** Lifecycle hooks grouped by execution location (host or sandbox). */
+  readonly hooks?: SandboxHooks;
   /** Key-value map for {{KEY}} placeholder substitution in prompts */
   readonly promptArgs?: PromptArgs;
   /** Logging mode (default: { type: 'file' } with auto-generated path under .sandcastle/logs/) */
@@ -301,6 +297,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         sandboxProvider: options.sandbox,
         branchStrategy,
         throwOnDuplicateWorktree: options.throwOnDuplicateWorktree,
+        hooks,
       }),
       NodeFileSystem.layer,
       displayLayer,

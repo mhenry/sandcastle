@@ -9,7 +9,7 @@ import { type DisplayEntry, SilentDisplay } from "./Display.js";
 import { Sandbox, type SandboxService } from "./SandboxFactory.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 import { ExecError, SyncError } from "./errors.js";
-import { withSandboxLifecycle } from "./SandboxLifecycle.js";
+import { withSandboxLifecycle, runHostHooks } from "./SandboxLifecycle.js";
 
 /**
  * Creates a sandbox that translates container paths to host paths,
@@ -165,7 +165,9 @@ describe("withSandboxLifecycle (worktree mode)", () => {
           sandboxRepoDir: worktreeDir,
 
           hooks: {
-            onSandboxReady: [{ command: "echo ready > ready-marker.txt" }],
+            sandbox: {
+              onSandboxReady: [{ command: "echo ready > ready-marker.txt" }],
+            },
           },
         },
         (ctx) =>
@@ -204,10 +206,12 @@ describe("withSandboxLifecycle (worktree mode)", () => {
           sandboxRepoDir: worktreeDir,
           branch: "sandcastle/test",
           hooks: {
-            onSandboxReady: [
-              { command: "npm install" },
-              { command: "apt-get install -y ffmpeg", sudo: true },
-            ],
+            sandbox: {
+              onSandboxReady: [
+                { command: "npm install" },
+                { command: "apt-get install -y ffmpeg", sudo: true },
+              ],
+            },
           },
         },
         () => Effect.succeed("ok"),
@@ -261,10 +265,12 @@ describe("withSandboxLifecycle (worktree mode)", () => {
           sandboxRepoDir: worktreeDir,
           branch: "sandcastle/test",
           hooks: {
-            onSandboxReady: [
-              { command: "slow-hook-a" },
-              { command: "slow-hook-b" },
-            ],
+            sandbox: {
+              onSandboxReady: [
+                { command: "slow-hook-a" },
+                { command: "slow-hook-b" },
+              ],
+            },
           },
         },
         () => Effect.succeed("ok"),
@@ -923,5 +929,139 @@ describe("withSandboxLifecycle (worktree mode)", () => {
       (e) => e._tag === "taskLog" && e.title === "Collecting commits",
     );
     expect(commitLog).toBeDefined();
+  });
+
+  it("host.onSandboxReady hooks run on the host with worktree cwd", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    await Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+          hooks: {
+            host: {
+              onSandboxReady: [
+                { command: "echo host-hook-ran > host-marker.txt" },
+              ],
+            },
+          },
+        },
+        () => Effect.succeed("ok"),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    // The marker should exist on the host worktree (cwd = worktreeDir)
+    const content = await readFile(
+      join(worktreeDir, "host-marker.txt"),
+      "utf-8",
+    );
+    expect(content.trim()).toBe("host-hook-ran");
+  });
+
+  it("host.onSandboxReady and sandbox.onSandboxReady run in parallel", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    await Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+          hooks: {
+            host: {
+              onSandboxReady: [{ command: "echo host-ready > host-ready.txt" }],
+            },
+            sandbox: {
+              onSandboxReady: [
+                { command: "echo sandbox-ready > sandbox-ready.txt" },
+              ],
+            },
+          },
+        },
+        () => Effect.succeed("ok"),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    // Both markers should exist
+    const hostContent = await readFile(
+      join(worktreeDir, "host-ready.txt"),
+      "utf-8",
+    );
+    expect(hostContent.trim()).toBe("host-ready");
+
+    const sandboxContent = await readFile(
+      join(worktreeDir, "sandbox-ready.txt"),
+      "utf-8",
+    );
+    expect(sandboxContent.trim()).toBe("sandbox-ready");
+  });
+
+  it("host.onSandboxReady hook failure propagates error", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    await expect(
+      Effect.runPromise(
+        withSandboxLifecycle(
+          {
+            hostRepoDir: hostDir,
+            sandboxRepoDir: worktreeDir,
+            branch: "sandcastle/test",
+            hooks: {
+              host: {
+                onSandboxReady: [{ command: "exit 1" }],
+              },
+            },
+          },
+          () => Effect.succeed("ok"),
+        ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+      ),
+    ).rejects.toThrow(/Host hook failed/);
+  });
+});
+
+describe("runHostHooks", () => {
+  it("runs hooks sequentially in declared order", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "host-hooks-"));
+
+    await Effect.runPromise(
+      runHostHooks(
+        [
+          { command: "echo first > order.txt" },
+          { command: "echo second >> order.txt" },
+        ],
+        dir,
+      ),
+    );
+
+    const content = await readFile(join(dir, "order.txt"), "utf-8");
+    const lines = content.trim().split("\n");
+    expect(lines).toEqual(["first", "second"]);
+  });
+
+  it("fails fast on non-zero exit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "host-hooks-"));
+
+    await expect(
+      Effect.runPromise(
+        runHostHooks(
+          [
+            { command: "exit 1" },
+            { command: "echo should-not-run > unreachable.txt" },
+          ],
+          dir,
+        ),
+      ),
+    ).rejects.toThrow(/Host hook failed/);
+  });
+
+  it("uses the provided cwd", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "host-hooks-"));
+
+    await Effect.runPromise(runHostHooks([{ command: "pwd > cwd.txt" }], dir));
+
+    const content = await readFile(join(dir, "cwd.txt"), "utf-8");
+    expect(content.trim()).toBe(dir);
   });
 });
