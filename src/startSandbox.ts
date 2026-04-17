@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   ContainerStartTimeoutError,
+  CopyToWorkspaceTimeoutError,
   SyncError,
   SyncInTimeoutError,
   WorktreeError,
@@ -55,6 +56,7 @@ export interface StartSandboxResult {
 
 const CONTAINER_START_TIMEOUT_MS = 120_000;
 const SYNC_IN_TIMEOUT_MS = 120_000;
+export const COPY_PATHS_TIMEOUT_MS = 120_000;
 
 /**
  * Start a sandbox by dispatching on `provider.tag`.
@@ -74,6 +76,7 @@ export const startSandbox = (
   | SyncError
   | ContainerStartTimeoutError
   | SyncInTimeoutError
+  | CopyToWorkspaceTimeoutError
 > => {
   if (options.provider.tag === "bind-mount") {
     return startBindMountSandbox(options as StartSandboxBindMountOptions);
@@ -132,6 +135,7 @@ const startIsolatedSandbox = (
   | SyncError
   | ContainerStartTimeoutError
   | SyncInTimeoutError
+  | CopyToWorkspaceTimeoutError
 > =>
   Effect.gen(function* () {
     const handle = yield* Effect.tryPromise({
@@ -163,20 +167,33 @@ const startIsolatedSandbox = (
     );
 
     if (options.copyPaths && options.copyPaths.length > 0) {
-      for (const relativePath of options.copyPaths) {
-        const hostPath = join(options.hostRepoDir, relativePath);
-        if (!existsSync(hostPath)) {
-          continue;
+      const pathsToCopy = options.copyPaths;
+      yield* Effect.gen(function* () {
+        for (const relativePath of pathsToCopy) {
+          const hostPath = join(options.hostRepoDir, relativePath);
+          if (!existsSync(hostPath)) {
+            continue;
+          }
+          const sandboxPath = join(handle.workspacePath, relativePath);
+          yield* Effect.tryPromise({
+            try: () => handle.copyIn(hostPath, sandboxPath),
+            catch: (e) =>
+              new WorktreeError({
+                message: `Failed to copy ${relativePath} into sandbox: ${e instanceof Error ? e.message : String(e)}`,
+              }),
+          });
         }
-        const sandboxPath = join(handle.workspacePath, relativePath);
-        yield* Effect.tryPromise({
-          try: () => handle.copyIn(hostPath, sandboxPath),
-          catch: (e) =>
-            new WorktreeError({
-              message: `Failed to copy ${relativePath} into sandbox: ${e instanceof Error ? e.message : String(e)}`,
+      }).pipe(
+        withTimeout(
+          COPY_PATHS_TIMEOUT_MS,
+          () =>
+            new CopyToWorkspaceTimeoutError({
+              message: `Copying paths to workspace timed out after ${COPY_PATHS_TIMEOUT_MS}ms`,
+              timeoutMs: COPY_PATHS_TIMEOUT_MS,
+              paths: pathsToCopy,
             }),
-        });
-      }
+        ),
+      );
     }
 
     return {
