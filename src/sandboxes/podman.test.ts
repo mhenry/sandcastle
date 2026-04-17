@@ -496,13 +496,10 @@ describe("podman()", () => {
   });
 
   it("does not fail sandbox creation when chown fails", async () => {
-    let callCount = 0;
     mockExecFile.mockImplementation((_command, args, ...rest: any[]) => {
-      // Last argument is the callback
       const callback = rest[rest.length - 1];
-      callCount++;
 
-      // Fail the chown exec call (third call: image inspect, podman run, chown)
+      // Fail the chown exec call
       if (Array.isArray(args) && args[0] === "exec" && args.includes("chown")) {
         const err = new Error("chown: Read-only file system");
         (err as any).code = 1;
