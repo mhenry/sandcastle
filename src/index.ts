@@ -28,6 +28,13 @@ export type {
   WorktreeCreateSandboxOptions,
 } from "./createWorktree.js";
 export type { PromptArgs } from "./PromptArgumentSubstitution.js";
+export {
+  hostSessionStore,
+  sandboxSessionStore,
+  transferSession,
+  encodeProjectPath,
+} from "./SessionStore.js";
+export type { SessionStore } from "./SessionStore.js";
 export type { SandboxHooks } from "./SandboxLifecycle.js";
 export type { MountConfig } from "./MountConfig.js";
 export { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
