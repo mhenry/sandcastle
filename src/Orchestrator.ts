@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { Deferred, Effect } from "effect";
 import { Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
@@ -357,9 +356,9 @@ export const orchestrate = (
                   // Parse token usage from the captured session JSONL
                   if (provider.parseSessionUsage) {
                     const content = yield* Effect.promise(() =>
-                      readFile(sessionFilePath!, "utf-8").catch(
-                        () => undefined as string | undefined,
-                      ),
+                      hStore
+                        .readSession(sessionId)
+                        .catch(() => undefined as string | undefined),
                     );
                     if (content) {
                       usage = provider.parseSessionUsage(content);
