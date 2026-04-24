@@ -16,9 +16,8 @@ export interface MountConfig {
   /**
    * Path inside the sandbox container. Supports:
    * - Absolute paths (`/mnt/data`)
+   * - Tilde-expanded paths (`~/.npm` → `/home/agent/.npm`) — expanded using the provider's sandbox home directory
    * - Relative paths (`data` or `./data`) — resolved from the worktree directory (`/home/agent/workspace`)
-   *
-   * Tilde is NOT expanded.
    */
   readonly sandboxPath: string;
   /** Mount as read-only. Defaults to `false`. */

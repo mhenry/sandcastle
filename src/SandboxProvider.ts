@@ -85,6 +85,12 @@ export interface BindMountSandboxProviderConfig {
   readonly name: string;
   /** Environment variables injected by this provider. Merged at launch time. */
   readonly env?: Record<string, string>;
+  /**
+   * Absolute path to the home directory inside the sandbox (e.g. `"/home/agent"`).
+   * Used to expand `~` in user-provided `sandboxPath` mount configs.
+   * Set to `undefined` for providers that do not have a fixed home directory.
+   */
+  readonly sandboxHomedir?: string;
   /** Create a sandbox handle from the given options. */
   readonly create: (
     options: BindMountCreateOptions,
@@ -160,6 +166,11 @@ export interface BindMountSandboxProvider {
   readonly name: string;
   /** Environment variables injected by this provider. */
   readonly env: Record<string, string>;
+  /**
+   * Absolute path to the home directory inside the sandbox (e.g. `"/home/agent"`).
+   * `undefined` when the provider does not declare a sandbox home directory.
+   */
+  readonly sandboxHomedir: string | undefined;
   /** @internal Create a sandbox handle. */
   readonly create: (
     options: BindMountCreateOptions,
@@ -305,6 +316,7 @@ export const createBindMountSandboxProvider = (
   tag: "bind-mount",
   name: config.name,
   env: config.env ?? {},
+  sandboxHomedir: config.sandboxHomedir,
   create: config.create,
 });
 

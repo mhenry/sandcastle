@@ -58,11 +58,15 @@ export interface DockerOptions {
  */
 export const docker = (options?: DockerOptions): SandboxProvider => {
   const configuredImageName = options?.imageName;
-  const userMounts = options?.mounts ? resolveUserMounts(options.mounts) : [];
+  const sandboxHomedir = "/home/agent";
+  const userMounts = options?.mounts
+    ? resolveUserMounts(options.mounts, sandboxHomedir)
+    : [];
 
   return createBindMountSandboxProvider({
     name: "docker",
     env: options?.env,
+    sandboxHomedir,
     create: async (
       createOptions: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {

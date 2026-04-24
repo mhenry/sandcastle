@@ -95,6 +95,28 @@ describe("resolveSandboxPath", () => {
   it("resolves relative paths against SANDBOX_REPO_DIR", () => {
     expect(resolveSandboxPath("data")).toBe(`${SANDBOX_REPO_DIR}/data`);
   });
+
+  it("expands ~ to sandboxHomedir when provided", () => {
+    expect(resolveSandboxPath("~", "/home/agent")).toBe("/home/agent");
+  });
+
+  it("expands ~/.npm to sandboxHomedir/.npm", () => {
+    expect(resolveSandboxPath("~/.npm", "/home/agent")).toBe(
+      "/home/agent/.npm",
+    );
+  });
+
+  it("throws when ~ is used but sandboxHomedir is undefined", () => {
+    expect(() => resolveSandboxPath("~/.npm")).toThrow(
+      /sandboxPath.*tilde.*sandboxHomedir/i,
+    );
+  });
+
+  it("throws when ~ alone is used but sandboxHomedir is undefined", () => {
+    expect(() => resolveSandboxPath("~")).toThrow(
+      /sandboxPath.*tilde.*sandboxHomedir/i,
+    );
+  });
 });
 
 describe("resolveUserMounts", () => {
@@ -120,6 +142,38 @@ describe("resolveUserMounts", () => {
       { hostPath: "/existing/path", sandboxPath: "/mnt/data", readonly: true },
     ]);
     expect(result[0]!.readonly).toBe(true);
+  });
+
+  it("expands ~ in sandboxPath when sandboxHomedir is provided", () => {
+    const result = resolveUserMounts(
+      [{ hostPath: "/existing/path", sandboxPath: "~/.npm" }],
+      "/home/agent",
+    );
+    expect(result[0]!.sandboxPath).toBe("/home/agent/.npm");
+  });
+
+  it("expands ~ alone in sandboxPath when sandboxHomedir is provided", () => {
+    const result = resolveUserMounts(
+      [{ hostPath: "/existing/path", sandboxPath: "~" }],
+      "/home/agent",
+    );
+    expect(result[0]!.sandboxPath).toBe("/home/agent");
+  });
+
+  it("throws when ~ used in sandboxPath but sandboxHomedir is undefined", () => {
+    expect(() =>
+      resolveUserMounts([
+        { hostPath: "/existing/path", sandboxPath: "~/.npm" },
+      ]),
+    ).toThrow(/sandboxPath.*tilde.*sandboxHomedir/i);
+  });
+
+  it("resolves hostPath tilde via os.homedir() regardless of sandboxHomedir", () => {
+    const result = resolveUserMounts(
+      [{ hostPath: "~/data", sandboxPath: "/mnt/data" }],
+      undefined,
+    );
+    expect(result[0]!.hostPath).toBe("/home/testuser/data");
   });
 });
 
@@ -281,9 +335,7 @@ describe("parseGitdirPath", () => {
   });
 
   it("parses Windows gitdir path with backslashes", () => {
-    const result = parseGitdirPath(
-      "C:\\Users\\project\\.git\\worktrees\\abc",
-    );
+    const result = parseGitdirPath("C:\\Users\\project\\.git\\worktrees\\abc");
     expect(result.parentGitDir).toBe("C:/Users/project/.git");
     expect(result.worktreeName).toBe("abc");
   });
@@ -297,9 +349,7 @@ describe("parseGitdirPath", () => {
   });
 
   it("handles trailing slash", () => {
-    const result = parseGitdirPath(
-      "/home/user/repo/.git/worktrees/my-wt/",
-    );
+    const result = parseGitdirPath("/home/user/repo/.git/worktrees/my-wt/");
     expect(result.parentGitDir).toBe("/home/user/repo/.git");
     expect(result.worktreeName).toBe("my-wt");
   });
@@ -401,9 +451,7 @@ describe("patchGitMountsForWindows", () => {
         mounts,
         "/tmp/test-worktree",
         SANDBOX_REPO_DIR,
-        makeReadFile(
-          "gitdir: C:/Users/parent-repo/.git/worktrees/my-branch\n",
-        ),
+        makeReadFile("gitdir: C:/Users/parent-repo/.git/worktrees/my-branch\n"),
         makeStatFile("file"),
         "win32",
       );

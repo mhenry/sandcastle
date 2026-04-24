@@ -36,13 +36,13 @@ export const defaultImageName = (repoDir: string): string => {
 };
 
 /**
- * Expand tilde (`~`) to the user's home directory.
+ * Expand tilde (`~`) to the given home directory (or `os.homedir()` if omitted).
  * Handles both `~/path` (POSIX) and `~\path` (Windows).
  */
-export const expandTilde = (p: string): string => {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/") || p.startsWith("~\\"))
-    return homedir() + "/" + p.slice(2);
+export const expandTilde = (p: string, homeDirPath?: string): string => {
+  const home = homeDirPath ?? homedir();
+  if (p === "~") return home;
+  if (p.startsWith("~/") || p.startsWith("~\\")) return home + "/" + p.slice(2);
   return p;
 };
 
@@ -55,19 +55,38 @@ export const resolveHostPath = (hostPath: string): string => {
 };
 
 /**
- * Resolve a sandbox path: relative paths are resolved from `SANDBOX_REPO_DIR`.
+ * Resolve a sandbox path: expands tilde using `sandboxHomedir`, then resolves
+ * relative paths from `SANDBOX_REPO_DIR`.
+ *
+ * Throws if `sandboxPath` starts with `~` but `sandboxHomedir` is `undefined`.
  */
-export const resolveSandboxPath = (sandboxPath: string): string =>
-  isAbsolute(sandboxPath)
-    ? sandboxPath
-    : resolve(SANDBOX_REPO_DIR, sandboxPath);
+export const resolveSandboxPath = (
+  sandboxPath: string,
+  sandboxHomedir?: string,
+): string => {
+  const hasTilde =
+    sandboxPath === "~" ||
+    sandboxPath.startsWith("~/") ||
+    sandboxPath.startsWith("~\\");
+  if (hasTilde && sandboxHomedir === undefined) {
+    throw new Error(
+      `sandboxPath "${sandboxPath}" contains a tilde but the provider has no sandboxHomedir set`,
+    );
+  }
+  const expanded = hasTilde
+    ? expandTilde(sandboxPath, sandboxHomedir)
+    : sandboxPath;
+  return isAbsolute(expanded) ? expanded : resolve(SANDBOX_REPO_DIR, expanded);
+};
 
 /**
  * Resolve and validate user-provided mount configurations.
  * Throws if a hostPath does not exist on the filesystem.
+ * Throws if a sandboxPath uses tilde but `sandboxHomedir` is `undefined`.
  */
 export const resolveUserMounts = (
   mounts: readonly MountConfig[],
+  sandboxHomedir?: string,
 ): Array<{ hostPath: string; sandboxPath: string; readonly?: boolean }> =>
   mounts.map((m) => {
     const resolvedHostPath = resolveHostPath(m.hostPath);
@@ -83,7 +102,7 @@ export const resolveUserMounts = (
 
     return {
       hostPath: resolvedHostPath,
-      sandboxPath: resolveSandboxPath(m.sandboxPath),
+      sandboxPath: resolveSandboxPath(m.sandboxPath, sandboxHomedir),
       ...(m.readonly ? { readonly: true } : {}),
     };
   });

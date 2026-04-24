@@ -93,11 +93,15 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
   const userns = options?.userns ?? "keep-id";
   const containerUid = options?.containerUid ?? 1000;
   const containerGid = options?.containerGid ?? 1000;
-  const userMounts = options?.mounts ? resolveUserMounts(options.mounts) : [];
+  const sandboxHomedir = "/home/agent";
+  const userMounts = options?.mounts
+    ? resolveUserMounts(options.mounts, sandboxHomedir)
+    : [];
 
   return createBindMountSandboxProvider({
     name: "podman",
     env: options?.env,
+    sandboxHomedir,
     create: async (
       createOptions: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {
