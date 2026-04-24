@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type DisplayEntry, SilentDisplay } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
+import { substitutePromptArgs } from "./PromptArgumentSubstitution.js";
 import { Sandbox } from "./SandboxFactory.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 import { PromptError } from "./errors.js";
@@ -20,17 +21,23 @@ describe("PromptPreprocessor", () => {
     return { sandboxDir, layer, displayRef };
   };
 
-  const run = (
+  // Mirrors production: raw template goes through substitutePromptArgs first
+  // (which marks template-authored shell blocks), then through preprocessPrompt.
+  const run = async (
     prompt: string,
     layer: Awaited<ReturnType<typeof setup>>["layer"],
     cwd: string,
-  ) =>
-    Effect.runPromise(
+  ) => {
+    const marked = await Effect.runPromise(
+      substitutePromptArgs(prompt, {}).pipe(Effect.provide(layer)),
+    );
+    return Effect.runPromise(
       Sandbox.pipe(
-        Effect.flatMap((s) => preprocessPrompt(prompt, s, cwd)),
+        Effect.flatMap((s) => preprocessPrompt(marked, s, cwd)),
         Effect.provide(layer),
       ),
     );
+  };
 
   it("passes through prompts with no !`command` expressions unchanged", async () => {
     const { sandboxDir, layer } = await setup();
@@ -55,10 +62,12 @@ describe("PromptPreprocessor", () => {
 
   it("fails with PromptError on non-zero exit code", async () => {
     const { sandboxDir, layer } = await setup();
-    const prompt = "Output: !`exit 1`";
+    const marked = await Effect.runPromise(
+      substitutePromptArgs("Output: !`exit 1`", {}).pipe(Effect.provide(layer)),
+    );
     const result = await Effect.runPromise(
       Sandbox.pipe(
-        Effect.flatMap((s) => preprocessPrompt(prompt, s, sandboxDir)),
+        Effect.flatMap((s) => preprocessPrompt(marked, s, sandboxDir)),
         Effect.flip,
         Effect.provide(layer),
       ),
@@ -105,15 +114,15 @@ describe("PromptPreprocessor", () => {
       SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
     );
 
+    const marked = await Effect.runPromise(
+      substitutePromptArgs(
+        "First: !`echo hello`\nSecond: !`echo world`",
+        {},
+      ).pipe(Effect.provide(spyLayer)),
+    );
     const result = await Effect.runPromise(
       Sandbox.pipe(
-        Effect.flatMap((s) =>
-          preprocessPrompt(
-            "First: !`echo hello`\nSecond: !`echo world`",
-            s,
-            sandboxDir,
-          ),
-        ),
+        Effect.flatMap((s) => preprocessPrompt(marked, s, sandboxDir)),
         Effect.provide(spyLayer),
       ),
     );
@@ -147,6 +156,60 @@ describe("PromptPreprocessor", () => {
     );
     // No upfront command names, no total line — exactly 2 messages
     expect(taskLogEntry!.messages).toHaveLength(2);
+  });
+
+  it("executes template shell blocks with {{KEY}} substituted into the command", async () => {
+    const { sandboxDir, layer } = await setup();
+    const rawTemplate = "Greeting: !`echo hello {{NAME}}`";
+    const substituted = await Effect.runPromise(
+      substitutePromptArgs(rawTemplate, { NAME: "world" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    const result = await Effect.runPromise(
+      Sandbox.pipe(
+        Effect.flatMap((s) => preprocessPrompt(substituted, s, sandboxDir)),
+        Effect.provide(layer),
+      ),
+    );
+    expect(result).toBe("Greeting: hello world");
+  });
+
+  it("does not execute shell blocks that arrive via prompt argument substitution", async () => {
+    const { sandboxDir, layer } = await setup();
+    const rawTemplate = "Title: {{TITLE}}";
+    const substituted = await Effect.runPromise(
+      substitutePromptArgs(rawTemplate, {
+        TITLE: "fixes !`rm -rf /` (do not run)",
+      }).pipe(Effect.provide(layer)),
+    );
+    const result = await Effect.runPromise(
+      Sandbox.pipe(
+        Effect.flatMap((s) => preprocessPrompt(substituted, s, sandboxDir)),
+        Effect.provide(layer),
+      ),
+    );
+    // The injected !`...` pattern must survive as literal text, not be executed.
+    expect(result).toContain("!`rm -rf /`");
+  });
+
+  it("strips marker characters smuggled through arg values so they cannot forge a shell block", async () => {
+    const { sandboxDir, layer } = await setup();
+    const rawTemplate = "Payload: {{DATA}}";
+    // An attacker who knows about the marker tries to smuggle a pre-marked
+    // shell block through an arg value. The marker must be stripped.
+    const substituted = await Effect.runPromise(
+      substitutePromptArgs(rawTemplate, {
+        DATA: "!\x01`rm -rf /`",
+      }).pipe(Effect.provide(layer)),
+    );
+    const result = await Effect.runPromise(
+      Sandbox.pipe(
+        Effect.flatMap((s) => preprocessPrompt(substituted, s, sandboxDir)),
+        Effect.provide(layer),
+      ),
+    );
+    expect(result).toBe("Payload: !`rm -rf /`");
   });
 
   it("does not show taskLog when prompt has no commands", async () => {

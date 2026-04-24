@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { Display } from "./Display.js";
 import { PromptError } from "./errors.js";
+import { SHELL_BLOCK_MARKER } from "./PromptPreprocessor.js";
+
+const SHELL_BLOCK_PATTERN = /!`([^`]+)`/g;
 
 /**
  * A map of named values used for prompt argument substitution.
@@ -86,10 +89,24 @@ export const substitutePromptArgs = (
   args: PromptArgs,
   silentKeys?: ReadonlySet<string>,
 ): Effect.Effect<string, PromptError, Display> => {
-  const matches = [...prompt.matchAll(PLACEHOLDER_PATTERN)];
+  // Mark shell blocks written in the raw template so the preprocessor can
+  // distinguish them from `!`...`` patterns that arrive via arg substitution.
+  // Strip any markers already present in raw input so they can't be forged.
+  const markedPrompt = prompt
+    .replaceAll(SHELL_BLOCK_MARKER, "")
+    .replace(SHELL_BLOCK_PATTERN, `!${SHELL_BLOCK_MARKER}\`$1\``);
+  const sanitizedArgs: PromptArgs = Object.fromEntries(
+    Object.entries(args).map(([key, value]) => [
+      key,
+      typeof value === "string"
+        ? value.replaceAll(SHELL_BLOCK_MARKER, "")
+        : value,
+    ]),
+  );
+  const matches = [...markedPrompt.matchAll(PLACEHOLDER_PATTERN)];
 
-  if (matches.length === 0 && Object.keys(args).length === 0) {
-    return Effect.succeed(prompt);
+  if (matches.length === 0 && Object.keys(sanitizedArgs).length === 0) {
+    return Effect.succeed(markedPrompt);
   }
 
   return Effect.gen(function* () {
@@ -100,7 +117,7 @@ export const substitutePromptArgs = (
 
     // Check for missing keys (placeholder in prompt but no matching arg)
     for (const key of referencedKeys) {
-      if (!(key in args)) {
+      if (!(key in sanitizedArgs)) {
         return yield* Effect.fail(
           new PromptError({
             message: `Prompt argument "{{${key}}}" has no matching value in promptArgs`,
@@ -111,7 +128,7 @@ export const substitutePromptArgs = (
 
     // Warn about unused keys (arg provided but no matching placeholder)
     // Skip keys listed in silentKeys (e.g. built-in args)
-    for (const key of Object.keys(args)) {
+    for (const key of Object.keys(sanitizedArgs)) {
       if (!referencedKeys.has(key) && !silentKeys?.has(key)) {
         yield* display.status(
           `Prompt argument "${key}" was provided but not referenced in the prompt`,
@@ -121,8 +138,8 @@ export const substitutePromptArgs = (
     }
 
     // Replace all placeholders with their values
-    const result = prompt.replace(PLACEHOLDER_PATTERN, (_match, key) =>
-      args[key as string]!.toString(),
+    const result = markedPrompt.replace(PLACEHOLDER_PATTERN, (_match, key) =>
+      sanitizedArgs[key as string]!.toString(),
     );
 
     return result;

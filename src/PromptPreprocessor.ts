@@ -10,6 +10,20 @@ import type { SandboxService } from "./SandboxFactory.js";
 
 const PROMPT_EXPANSION_TIMEOUT_MS = 30_000;
 
+/**
+ * @internal
+ * Marker inserted between `!` and the opening backtick for shell blocks that
+ * appear in the raw template. The preprocessor only executes marked blocks, so
+ * `!`...`` patterns arriving via argument substitution are treated as data.
+ * Used only by `substitutePromptArgs`; not part of the public API.
+ */
+export const SHELL_BLOCK_MARKER = "\x01";
+
+const MARKED_SHELL_BLOCK_PATTERN = new RegExp(
+  `!${SHELL_BLOCK_MARKER}\`([^\`]+)\``,
+  "g",
+);
+
 export const preprocessPrompt = (
   prompt: string,
   sandbox: SandboxService,
@@ -19,11 +33,10 @@ export const preprocessPrompt = (
   ExecError | PromptError | PromptExpansionTimeoutError,
   Display
 > => {
-  const pattern = /!`([^`]+)`/g;
-  const matches = [...prompt.matchAll(pattern)];
+  const matches = [...prompt.matchAll(MARKED_SHELL_BLOCK_PATTERN)];
 
   if (matches.length === 0) {
-    return Effect.succeed(prompt);
+    return Effect.succeed(prompt.replaceAll(SHELL_BLOCK_MARKER, ""));
   }
 
   return Effect.gen(function* () {
@@ -63,7 +76,7 @@ export const preprocessPrompt = (
         for (let i = 0; i < matches.length; i++) {
           const command = matches[i]![1]!;
           const tokens = Math.ceil(results[i]!.length / 4);
-          message(`${command} \u2192 ~${tokens} tokens`);
+          message(`${command} → ~${tokens} tokens`);
         }
 
         // Replace all matches using original indices (process in reverse to preserve positions)
@@ -76,7 +89,7 @@ export const preprocessPrompt = (
             results[i] +
             result.slice(index + match[0].length);
         }
-        return result;
+        return result.replaceAll(SHELL_BLOCK_MARKER, "");
       }),
     );
   });

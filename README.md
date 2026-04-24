@@ -529,6 +529,8 @@ Prompt argument substitution runs on the host before shell expression expansion,
 
 A `{{KEY}}` placeholder with no matching prompt argument is an error. Unused prompt arguments produce a warning.
 
+`` !`command` `` expansion only runs on shell blocks written in the prompt file itself. Any `` !`…` `` pattern that appears inside an argument value is treated as inert text — it won't be executed against the host shell. This makes it safe to pass user-authored content (issue titles, PR descriptions, docs excerpts) through `promptArgs`.
+
 ### Built-in prompt arguments
 
 Sandcastle automatically injects two built-in prompt arguments into every prompt:
