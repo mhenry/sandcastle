@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { type DisplayEntry, SilentDisplay } from "./Display.js";
 import { Sandbox, type SandboxService } from "./SandboxFactory.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
-import { ExecError, HookTimeoutError, SyncError } from "./errors.js";
+import { ExecError, SyncError } from "./errors.js";
 import { withSandboxLifecycle, runHostHooks } from "./SandboxLifecycle.js";
 
 /**
