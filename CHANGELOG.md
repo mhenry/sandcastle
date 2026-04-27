@@ -1,5 +1,11 @@
 # @ai-hero/sandcastle
 
+## 0.5.5
+
+### Patch Changes
+
+- e868d2d: Fix `createWorktree` failing with "already exists" when reusing a preserved mid-rebase worktree. Collision detection now also matches by target path, covering the detached-HEAD state during an in-progress rebase.
+
 ## 0.5.4
 
 ### Patch Changes
