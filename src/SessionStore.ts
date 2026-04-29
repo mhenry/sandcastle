@@ -38,9 +38,9 @@ export interface SessionStore {
  * Replaces path separators with hyphens, matching Claude Code's convention.
  */
 export const encodeProjectPath = (cwd: string): string => {
-  // Strip trailing slash (but preserve root "/")
-  const normalized = cwd.length > 1 ? cwd.replace(/\/+$/, "") : cwd;
-  return normalized.replaceAll("/", "-");
+  const isRoot = cwd === "/" || /^[A-Za-z]:[\\/]?$/.test(cwd);
+  const normalized = isRoot ? cwd : cwd.replace(/[\\/]+$/, "");
+  return normalized.replace(/^([A-Za-z]):/, "$1").replace(/[\\/]/g, "-");
 };
 
 // ---------------------------------------------------------------------------
