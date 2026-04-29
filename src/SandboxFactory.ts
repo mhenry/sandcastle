@@ -12,6 +12,7 @@ import {
   type DockerError,
   type SandboxError,
 } from "./errors.js";
+import type { Timeouts } from "./run.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToWorktree } from "./CopyToWorktree.js";
 import { Display } from "./Display.js";
@@ -186,6 +187,8 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly hooks?: SandboxHooks;
     /** AbortSignal threaded to lifecycle hooks so they can cooperatively cancel. */
     readonly signal?: AbortSignal;
+    /** Override default timeouts for built-in lifecycle steps. */
+    readonly timeouts?: Timeouts;
   }
 >() {}
 
@@ -313,6 +316,7 @@ export const WorktreeDockerSandboxFactory = {
         branchStrategy,
         hooks,
         signal,
+        timeouts,
       } = yield* SandboxConfig;
 
       const isHeadMode = branchStrategy.type === "head";
@@ -500,7 +504,7 @@ export const WorktreeDockerSandboxFactory = {
                 (copyPaths && copyPaths.length > 0
                   ? display.spinner(
                       "Copying to worktree",
-                      copyToWorktree(copyPaths, hostRepoDir, worktreeInfo.path),
+                      copyToWorktree(copyPaths, hostRepoDir, worktreeInfo.path, timeouts?.copyToWorktreeMs),
                     )
                   : Effect.succeed(undefined)
                 ).pipe(Effect.map(() => worktreeInfo)),

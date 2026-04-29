@@ -26,7 +26,7 @@ import {
 } from "./PromptArgumentSubstitution.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
-import type { LoggingOption } from "./run.js";
+import type { LoggingOption, Timeouts } from "./run.js";
 import { buildLogFilename, printFileDisplayStartup } from "./run.js";
 import {
   withSandboxLifecycle,
@@ -73,6 +73,8 @@ export interface CreateSandboxOptions {
   readonly hooks?: SandboxHooks;
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToWorktree?: string[];
+  /** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+  readonly timeouts?: Timeouts;
   /** @internal Test-only overrides to bypass the sandbox provider. */
   readonly _test?: {
     readonly buildSandboxLayer?: (
@@ -499,6 +501,7 @@ export interface CreateSandboxFromWorktreeOptions {
   readonly sandbox: SandboxProvider;
   readonly hooks?: SandboxHooks;
   readonly copyToWorktree?: string[];
+  readonly timeouts?: Timeouts;
   readonly _test?: {
     readonly buildSandboxLayer?: (
       sandboxDir: string,
@@ -524,7 +527,7 @@ export const createSandboxFromWorktree = async (
     options.sandbox.tag !== "isolated"
   ) {
     await Effect.runPromise(
-      copyToWorktree(options.copyToWorktree, hostRepoDir, worktreePath),
+      copyToWorktree(options.copyToWorktree, hostRepoDir, worktreePath, options.timeouts?.copyToWorktreeMs),
     );
   }
 
@@ -678,7 +681,7 @@ export const createSandbox = async (
     options.sandbox.tag !== "isolated"
   ) {
     await Effect.runPromise(
-      copyToWorktree(options.copyToWorktree, hostRepoDir, worktreePath),
+      copyToWorktree(options.copyToWorktree, hostRepoDir, worktreePath, options.timeouts?.copyToWorktreeMs),
     );
   }
 

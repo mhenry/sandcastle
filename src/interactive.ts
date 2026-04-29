@@ -41,6 +41,7 @@ import {
 import { noSandbox } from "./sandboxes/no-sandbox.js";
 import { raceAbortSignal } from "./raceAbortSignal.js";
 import { resolveCwd } from "./resolveCwd.js";
+import type { Timeouts } from "./run.js";
 
 export interface InteractiveOptions {
   /** Agent provider to use (e.g. claudeCode("claude-opus-4-6")) */
@@ -83,6 +84,8 @@ export interface InteractiveOptions {
    * - The worktree is preserved on disk after abort (error-path behavior).
    */
   readonly signal?: AbortSignal;
+  /** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+  readonly timeouts?: Timeouts;
 }
 
 export interface InteractiveResult {
@@ -268,6 +271,7 @@ export const interactive = async (
             options.copyToWorktree!,
             hostRepoDir,
             worktreeInfo!.path,
+            options.timeouts?.copyToWorktreeMs,
           ),
         );
       }

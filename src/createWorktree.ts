@@ -54,6 +54,7 @@ import {
 } from "./PromptArgumentSubstitution.js";
 import { noSandbox } from "./sandboxes/no-sandbox.js";
 import { raceAbortSignal } from "./raceAbortSignal.js";
+import type { Timeouts } from "./run.js";
 
 /** Branch strategies valid for createWorktree — head is excluded. */
 export type WorktreeBranchStrategy =
@@ -78,6 +79,8 @@ export interface CreateWorktreeOptions {
    *  Only `host.onWorktreeReady` is executed here — other hooks are passed through
    *  to `run()`, `interactive()`, or `createSandbox()`. */
   readonly hooks?: SandboxHooks;
+  /** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+  readonly timeouts?: Timeouts;
 }
 
 export interface WorktreeInteractiveOptions {
@@ -171,6 +174,8 @@ export interface WorktreeCreateSandboxOptions {
   readonly hooks?: SandboxHooks;
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToWorktree?: string[];
+  /** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+  readonly timeouts?: Timeouts;
   /** @internal Test-only overrides to bypass the sandbox provider. */
   readonly _test?: {
     readonly buildSandboxLayer?: (
@@ -226,7 +231,7 @@ export const createWorktree = async (
       baseBranch,
     });
     if (options.copyToWorktree && options.copyToWorktree.length > 0) {
-      yield* copyToWorktree(options.copyToWorktree, hostRepoDir, info.path);
+      yield* copyToWorktree(options.copyToWorktree, hostRepoDir, info.path, options.timeouts?.copyToWorktreeMs);
     }
     // Run host.onWorktreeReady hooks after copyToWorktree, before sandbox creation
     if (options.hooks?.host?.onWorktreeReady?.length) {
@@ -670,6 +675,7 @@ export const createWorktree = async (
       sandbox: opts.sandbox,
       hooks: opts.hooks,
       copyToWorktree: opts.copyToWorktree,
+      timeouts: opts.timeouts,
       _test: opts._test,
     });
   };

@@ -192,6 +192,12 @@ export type LoggingOption =
   /** Render progress and agent output as an interactive UI in the terminal (terminal mode). */
   | { readonly type: "stdout" };
 
+/** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+export interface Timeouts {
+  /** Timeout (ms) for the host-side copy of `copyToWorktree` paths into the worktree. Default: 60_000. */
+  readonly copyToWorktreeMs?: number;
+}
+
 export interface RunOptions {
   /** Agent provider to use (e.g. claudeCode("claude-opus-4-6")) */
   readonly agent: AgentProvider;
@@ -250,6 +256,8 @@ export interface RunOptions {
    * - The worktree is preserved on disk after abort (error-path behavior).
    */
   readonly signal?: AbortSignal;
+  /** Override default timeouts for built-in lifecycle steps. Unset keys keep their defaults. */
+  readonly timeouts?: Timeouts;
 }
 
 export type { IterationResult, IterationUsage } from "./Orchestrator.js";
@@ -414,6 +422,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         branchStrategy,
         hooks,
         signal: options.signal,
+        timeouts: options.timeouts,
       }),
       NodeFileSystem.layer,
       displayLayer,

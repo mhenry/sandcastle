@@ -5,6 +5,7 @@ export type {
   LoggingOption,
   IterationResult,
   IterationUsage,
+  Timeouts,
 } from "./run.js";
 export { interactive } from "./interactive.js";
 export type { InteractiveOptions, InteractiveResult } from "./interactive.js";

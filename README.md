@@ -188,6 +188,12 @@ const result = await run({
   // Not supported with branchStrategy: { type: "head" }.
   copyToWorktree: [".env"],
 
+  // Override default timeouts for built-in lifecycle steps.
+  // Unset keys keep their defaults.
+  timeouts: {
+    copyToWorktreeMs: 120_000, // default: 60_000
+  },
+
   // How to record progress. Default: write to a file under .sandcastle/logs/
   logging: {
     type: "file",
@@ -296,6 +302,7 @@ if (closeResult.preservedWorktreePath) {
 | `cwd`            | string          | `process.cwd()` | Host repo directory — relative paths resolve against `process.cwd()` |
 | `hooks`          | SandboxHooks    | —               | Lifecycle hooks (`host.*`, `sandbox.*`) — run once at creation time  |
 | `copyToWorktree` | string[]        | —               | Host-relative file paths to copy into the sandbox at creation time   |
+| `timeouts`       | Timeouts        | —               | Override default timeouts (e.g. `{ copyToWorktreeMs: 120_000 }`)     |
 
 #### `Sandbox`
 
@@ -398,6 +405,7 @@ await sandbox.close();
 | ---------------- | ---------------------- | ------- | ------------------------------------------------------------------------- |
 | `branchStrategy` | WorktreeBranchStrategy | —       | **Required.** `{ type: "branch", branch }` or `{ type: "merge-to-head" }` |
 | `copyToWorktree` | string[]               | —       | Host-relative file paths to copy into the worktree at creation time       |
+| `timeouts`       | Timeouts               | —       | Override default timeouts (e.g. `{ copyToWorktreeMs: 120_000 }`)          |
 
 #### `Worktree`
 
@@ -462,6 +470,7 @@ await sandbox.close();
 | `sandbox`        | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`)                    |
 | `hooks`          | SandboxHooks    | —       | Lifecycle hooks (`host.*`, `sandbox.*`)                             |
 | `copyToWorktree` | string[]        | —       | Host-relative file paths to copy into the worktree at creation time |
+| `timeouts`       | Timeouts        | —       | Override default timeouts (e.g. `{ copyToWorktreeMs: 120_000 }`)    |
 
 ## How it works
 
@@ -674,6 +683,7 @@ Removes the Podman image.
 | `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                                                                     |
 | `resumeSession`      | string             | —                             | Resume a prior Claude Code session by ID. Incompatible with `maxIterations > 1`. Session file must exist on host.                                               |
 | `signal`             | AbortSignal        | —                             | Cancel the run when aborted. Kills the in-flight agent subprocess and cancels lifecycle hooks; the worktree is preserved on disk. Rejects with `signal.reason`. |
+| `timeouts`           | Timeouts           | —                             | Override default timeouts for built-in lifecycle steps. Currently supports `{ copyToWorktreeMs?: number }` (default: 60 000).                                   |
 
 ### `RunResult`
 
