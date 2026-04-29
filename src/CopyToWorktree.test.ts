@@ -4,8 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { copyToWorktree } from "./CopyToWorktree.js";
+import { copyToWorktree, getCopyOnWriteFlags } from "./CopyToWorktree.js";
 import { CopyToWorktreeError } from "./errors.js";
+
+describe("getCopyOnWriteFlags", () => {
+  it("returns -cR on darwin (APFS clonefile)", () => {
+    expect(getCopyOnWriteFlags("darwin")).toEqual(["-cR"]);
+  });
+
+  it("returns -R --reflink=auto on linux", () => {
+    expect(getCopyOnWriteFlags("linux")).toEqual(["-R", "--reflink=auto"]);
+  });
+
+  it("returns -R --reflink=auto on other platforms", () => {
+    expect(getCopyOnWriteFlags("win32")).toEqual(["-R", "--reflink=auto"]);
+    expect(getCopyOnWriteFlags("freebsd")).toEqual(["-R", "--reflink=auto"]);
+  });
+});
 
 describe("copyToWorktree", () => {
   it("fails with CopyToWorktreeError when fallback cp -R fails", async () => {

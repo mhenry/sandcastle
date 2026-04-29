@@ -11,8 +11,16 @@ import {
 const COPY_TO_WORKTREE_TIMEOUT_MS = 60_000;
 
 /**
+ * Returns cp flags for copy-on-write support:
+ * - macOS (darwin): `-cR` uses APFS clonefile
+ * - Other (Linux, etc.): `-R --reflink=auto` uses GNU coreutils reflink
+ */
+export const getCopyOnWriteFlags = (platform: string): string[] =>
+  platform === "darwin" ? ["-cR"] : ["-R", "--reflink=auto"];
+
+/**
  * Copy files and directories from the host repo root to the worktree root,
- * using `cp -R --reflink=auto` for copy-on-write when the filesystem supports it.
+ * using copy-on-write when the filesystem supports it.
  * Missing paths are silently skipped.
  */
 export const copyToWorktree = (
@@ -27,8 +35,9 @@ export const copyToWorktree = (
         continue;
       }
       const dest = join(worktreePath, relativePath);
+      const cowFlags = getCopyOnWriteFlags(process.platform);
       yield* Effect.async<void, CopyToWorktreeError>((resume) => {
-        execFile("cp", ["-R", "--reflink=auto", src, dest], (error) => {
+        execFile("cp", [...cowFlags, src, dest], (error) => {
           if (error) {
             // Fall back to a regular copy if reflink is not supported
             execFile("cp", ["-R", src, dest], (fallbackError, _, stderr) => {
