@@ -30,7 +30,7 @@ Sandcastle is provider-agnostic — it ships with built-in providers for Docker,
 1. Install the package:
 
 ```bash
-npm install @ai-hero/sandcastle
+npm install --save-dev @ai-hero/sandcastle
 ```
 
 2. Run `sandcastle init`. This scaffolds a `.sandcastle` directory with all the files needed.
