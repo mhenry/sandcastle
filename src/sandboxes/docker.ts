@@ -102,13 +102,13 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
       const imageName =
         configuredImageName ?? defaultImageName(createOptions.hostRepoPath);
 
-      const hostUid =
+      const containerUid =
         options?.containerUid ?? process.getuid?.() ?? 1000;
-      const hostGid =
+      const containerGid =
         options?.containerGid ?? process.getgid?.() ?? 1000;
 
       // Pre-flight: verify image exists and UID matches
-      await checkImageUid(imageName, hostUid);
+      await checkImageUid(imageName, containerUid);
 
       // Start container
       await Effect.runPromise(
@@ -122,7 +122,7 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
           {
             volumeMounts,
             workdir: worktreePath,
-            user: `${hostUid}:${hostGid}`,
+            user: `${containerUid}:${containerGid}`,
             network: options?.network,
           },
         ),
