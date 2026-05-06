@@ -434,7 +434,7 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain('"@ai-hero/sandcastle"');
     });
 
-    it("main.mts calls sandcastle.run() twice per iteration (implement + review)", async () => {
+    it("main.mts uses createSandbox so implementer and reviewer share a sandbox", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -442,14 +442,14 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(mainTs).toContain("sandcastle");
-      const runCallCount = (mainTs.match(/\.run\(/g) ?? []).length;
-      expect(runCallCount).toBeGreaterThanOrEqual(2);
+      expect(mainTs).toContain("createSandbox");
+      expect(mainTs).toContain("sandbox.run");
+      expect(mainTs).toContain("sandbox.close");
       expect(mainTs).toContain("implement-prompt.md");
       expect(mainTs).toContain("review-prompt.md");
     });
 
-    it("main.mts passes branch from implement result to review run", async () => {
+    it("main.mts does not use merge-to-head (incompatible with reviewer handoff)", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -457,7 +457,18 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(mainTs).toContain("branch");
+      expect(mainTs).not.toContain("merge-to-head");
+    });
+
+    it("main.mts only reviews when implementer produces commits", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain("implement.commits.length");
     });
 
     it("implement-prompt.md contains issue selection and closure, not prompt argument placeholders", async () => {
