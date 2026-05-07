@@ -1,5 +1,13 @@
 # @ai-hero/sandcastle
 
+## 0.5.10
+
+### Patch Changes
+
+- 95d63a4: Apply `:z` SELinux label by default on Docker bind mounts, matching the existing Podman behavior. Adds `selinuxLabel` option to `DockerOptions` (`"z"` | `"Z"` | `false`, default `"z"`). Extracts shared `formatVolumeMount` from Podman provider into `src/mountUtils.ts` so both providers use the same volume-mount formatter.
+- 9bf43df: Auto-create parent directories for file-target bind mounts under `/home/agent`. When a user mount targets a single file whose sandbox-side parent directory may not exist in the image (e.g. `/home/agent/.codex/auth.json`), both Docker and Podman providers now run `mkdir -p` + `chown` on the parent at container start. File mounts whose parent is outside `/home/agent` fail at config time with a clear error and remediation guidance.
+- adbb3cc: Add `variant` option to the `opencode` agent provider for controlling reasoning effort via opencode's `--variant` CLI flag.
+
 ## 0.5.9
 
 ### Patch Changes
