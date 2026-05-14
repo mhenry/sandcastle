@@ -28,7 +28,7 @@ const opencodeAgent = getAgent("opencode")!;
 
 const defaultOptions: ScaffoldOptions = {
   agent: claudeCodeAgent,
-  model: "claude-opus-4-6",
+  model: "claude-opus-4-7",
 };
 
 const runScaffold = (repoDir: string, options?: Partial<ScaffoldOptions>) =>
@@ -52,7 +52,7 @@ describe("Agent registry", () => {
     const agent = getAgent("claude-code");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("claude-code");
-    expect(agent!.defaultModel).toBe("claude-opus-4-6");
+    expect(agent!.defaultModel).toBe("claude-opus-4-7");
     expect(agent!.factoryImport).toBe("claudeCode");
     expect(agent!.dockerfileTemplate).toContain("FROM");
   });
@@ -335,7 +335,7 @@ describe("InitService scaffold", () => {
     );
     expect(mainTs).toContain('claudeCode("claude-sonnet-4-6")');
     // Should not contain the template's original model
-    expect(mainTs).not.toContain('claudeCode("claude-opus-4-6")');
+    expect(mainTs).not.toContain('claudeCode("claude-opus-4-7")');
   });
 
   it("scaffolds main.mts with default model when using agent default", async () => {
@@ -346,7 +346,7 @@ describe("InitService scaffold", () => {
       join(dir, ".sandcastle", "main.mts"),
       "utf-8",
     );
-    expect(mainTs).toContain('claudeCode("claude-opus-4-6")');
+    expect(mainTs).toContain('claudeCode("claude-opus-4-7")');
   });
 
   // --- Template-specific tests ---
@@ -384,7 +384,7 @@ describe("InitService scaffold", () => {
     expect(mainTs).toContain("run(");
     expect(mainTs).toContain("maxIterations");
     expect(mainTs).toContain("3");
-    // When scaffolded with default model, simple-loop uses claude-opus-4-6
+    // When scaffolded with default model, simple-loop uses claude-opus-4-7
     // (rewritten from template's claude-sonnet-4-6)
     expect(mainTs).toContain("promptFile");
     expect(mainTs).toContain("npm install");
@@ -855,8 +855,8 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      // All factory calls should use the specified model (default: claude-opus-4-6)
-      expect(mainTs).toContain("claude-opus-4-6");
+      // All factory calls should use the specified model (default: claude-opus-4-7)
+      expect(mainTs).toContain("claude-opus-4-7");
     });
 
     it("implement-prompt.md contains {{TASK_ID}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
@@ -1108,7 +1108,7 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(mainTs).toContain("claude-opus-4-6");
+      expect(mainTs).toContain("claude-opus-4-7");
     });
 
     it("scaffolds CODING_STANDARDS.md with minimal starter content", async () => {
@@ -1852,7 +1852,7 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(mainContent).toContain("@ai-hero/sandcastle");
-      expect(mainContent).toContain('claudeCode("claude-opus-4-6")');
+      expect(mainContent).toContain('claudeCode("claude-opus-4-7")');
     });
 
     it("main.ts scaffolded with type: module rewrites agent factory correctly", async () => {
